@@ -1,5 +1,3 @@
-using WindowCapture;
-
 namespace OnnxRuntimeInference
 {
     public enum InferencePreprocessBackend
@@ -10,7 +8,7 @@ namespace OnnxRuntimeInference
 
     public sealed class FrameOnnxRunnerOptions
     {
-        public FrameResizeAlgorithm ResizeAlgorithm { get; set; } = FrameResizeAlgorithm.Bilinear;
+        public OnnxResizeAlgorithm ResizeAlgorithm { get; set; } = OnnxResizeAlgorithm.Bilinear;
         public bool ApplyClassNms { get; set; }
         public float NmsIouThreshold { get; set; } = 0.5f;
         public bool DisposeSession { get; set; }

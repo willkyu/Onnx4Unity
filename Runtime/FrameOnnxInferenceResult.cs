@@ -11,6 +11,8 @@ namespace OnnxRuntimeInference
             int originalHeight,
             int inputWidth,
             int inputHeight,
+            long sourceFrameId,
+            DateTime sourceTimestampUtc,
             TimeSpan resizeDuration,
             TimeSpan tensorDuration,
             TimeSpan inferenceDuration,
@@ -24,6 +26,8 @@ namespace OnnxRuntimeInference
             OriginalHeight = originalHeight;
             InputWidth = inputWidth;
             InputHeight = inputHeight;
+            SourceFrameId = sourceFrameId;
+            SourceTimestampUtc = sourceTimestampUtc;
             ResizeDuration = resizeDuration;
             TensorDuration = tensorDuration;
             InferenceDuration = inferenceDuration;
@@ -38,6 +42,8 @@ namespace OnnxRuntimeInference
         public int OriginalHeight { get; }
         public int InputWidth { get; }
         public int InputHeight { get; }
+        public long SourceFrameId { get; }
+        public DateTime SourceTimestampUtc { get; }
         public TimeSpan ResizeDuration { get; }
         public TimeSpan TensorDuration { get; }
         public TimeSpan InferenceDuration { get; }
@@ -62,6 +68,8 @@ namespace OnnxRuntimeInference
             int originalHeight,
             int inputWidth,
             int inputHeight,
+            long sourceFrameId,
+            DateTime sourceTimestampUtc,
             TimeSpan resizeDuration,
             InferencePreprocessBackend preprocessBackend = InferencePreprocessBackend.CpuResizeCpuTensor)
         {
@@ -72,6 +80,8 @@ namespace OnnxRuntimeInference
                 originalHeight,
                 inputWidth,
                 inputHeight,
+                sourceFrameId,
+                sourceTimestampUtc,
                 resizeDuration,
                 TimeSpan.Zero,
                 TimeSpan.Zero,

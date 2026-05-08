@@ -1,8 +1,8 @@
 {
   "name": "com.willkyu.onnxruntime-inference",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "displayName": "willkyu ONNX Runtime Inference",
-  "description": "Reusable Unity runtime package for ONNX Runtime detector inference, DirectML preload, captured-frame preprocessing, prepared tensor input, and YOLO decode.",
+  "description": "Standalone Unity runtime package for ONNX Runtime detector inference, DirectML preload, RGBA preprocessing, prepared tensor input, and YOLO decode.",
   "unity": "2022.3",
   "author": {
     "name": "willkyu"
@@ -14,7 +14,5 @@
     "inference",
     "detector"
   ],
-  "dependencies": {
-    "com.willkyu.window-capture": "0.1.3"
-  }
+  "dependencies": {}
 }

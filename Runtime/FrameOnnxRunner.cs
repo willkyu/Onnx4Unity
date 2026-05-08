@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
@@ -22,7 +21,7 @@ namespace OnnxRuntimeInference
         public FrameOnnxRunner(
             IOnnxDetectorSession session,
             DetectorModelProfile profile,
-            FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Bilinear,
+            OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Bilinear,
             bool applyClassNms = false,
             float nmsIouThreshold = 0.5f,
             bool disposeSession = false)
@@ -60,10 +59,8 @@ namespace OnnxRuntimeInference
 
         public DetectorModelProfile Profile => profile;
 
-        public bool TryBeginRun(CapturedFrame sourceFrame)
+        public bool TryBeginRun(RgbaFrameInput sourceFrame)
         {
-            if (sourceFrame == null)
-                throw new ArgumentNullException(nameof(sourceFrame));
             if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
                 throw new ArgumentException("Captured frame size must be positive.", nameof(sourceFrame));
             ThrowIfDisposed();
@@ -126,24 +123,26 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private bool TryBeginCpuRun(CapturedFrame sourceFrame)
+        private bool TryBeginCpuRun(RgbaFrameInput sourceFrame)
         {
-            if (sourceFrame.Format != FramePixelFormat.Rgba32)
-                throw new InvalidOperationException("CPU resize currently requires RGBA32 captured frames.");
-
             if (!TryEnterRun())
                 return false;
 
             try
             {
-                int sourceByteCount = FramePixelFormatUtility.GetByteCount(sourceFrame.Width, sourceFrame.Height, sourceFrame.Format);
+                int sourceByteCount = checked(sourceFrame.Width * sourceFrame.Height * 4);
                 var sourcePixels = new byte[sourceByteCount];
                 Buffer.BlockCopy(sourceFrame.Pixels, 0, sourcePixels, 0, sourceByteCount);
 
                 if (sourceFrame.RowsBottomUp)
                     FlipRgbaVerticalInPlace(sourcePixels, sourceFrame.Width, sourceFrame.Height);
 
-                BeginCpuResizeInference(sourcePixels, sourceFrame.Width, sourceFrame.Height);
+                BeginCpuResizeInference(
+                    sourcePixels,
+                    sourceFrame.Width,
+                    sourceFrame.Height,
+                    sourceFrame.FrameId,
+                    sourceFrame.TimestampUtc);
                 return true;
             }
             catch
@@ -153,7 +152,12 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void BeginCpuResizeInference(byte[] sourcePixels, int sourceWidth, int sourceHeight)
+        private void BeginCpuResizeInference(
+            byte[] sourcePixels,
+            int sourceWidth,
+            int sourceHeight,
+            long sourceFrameId,
+            DateTime sourceTimestampUtc)
         {
             Task task = Task.Run(() =>
             {
@@ -165,7 +169,7 @@ namespace OnnxRuntimeInference
                     EnsureTensorBuffer();
 
                     var resizeWatch = Stopwatch.StartNew();
-                    if (options.ResizeAlgorithm == FrameResizeAlgorithm.Nearest)
+                    if (options.ResizeAlgorithm == OnnxResizeAlgorithm.Nearest)
                     {
                         Rgba32Resizer.ResizeNearest(
                             sourcePixels,
@@ -193,10 +197,8 @@ namespace OnnxRuntimeInference
                         cpuResizeBuffer,
                         inputWidth,
                         inputHeight,
-                        FramePixelFormat.Rgba32,
                         rowsBottomUp: false,
                         profile.InputSpec,
-                        ColorOrder.Rgb,
                         tensorBuffer);
                     tensorWatch.Stop();
 
@@ -204,6 +206,8 @@ namespace OnnxRuntimeInference
                         tensorBuffer,
                         sourceWidth,
                         sourceHeight,
+                        sourceFrameId,
+                        sourceTimestampUtc,
                         resizeWatch.Elapsed,
                         tensorWatch.Elapsed);
                 }
@@ -215,6 +219,8 @@ namespace OnnxRuntimeInference
                         sourceHeight,
                         profile.InputSpec.Width,
                         profile.InputSpec.Height,
+                        sourceFrameId,
+                        sourceTimestampUtc,
                         TimeSpan.Zero));
                 }
             });
@@ -226,6 +232,8 @@ namespace OnnxRuntimeInference
         {
             int originalWidth = preparedInput.OriginalWidth;
             int originalHeight = preparedInput.OriginalHeight;
+            long sourceFrameId = preparedInput.FrameId;
+            DateTime sourceTimestampUtc = preparedInput.TimestampUtc;
             float[] tensor = preparedInput.Tensor;
 
             Task task = Task.Run(() =>
@@ -236,6 +244,8 @@ namespace OnnxRuntimeInference
                         tensor,
                         originalWidth,
                         originalHeight,
+                        sourceFrameId,
+                        sourceTimestampUtc,
                         TimeSpan.Zero,
                         TimeSpan.Zero,
                         InferencePreprocessBackend.PreparedCpuTensor);
@@ -248,6 +258,8 @@ namespace OnnxRuntimeInference
                         originalHeight,
                         profile.InputSpec.Width,
                         profile.InputSpec.Height,
+                        sourceFrameId,
+                        sourceTimestampUtc,
                         TimeSpan.Zero,
                         InferencePreprocessBackend.PreparedCpuTensor));
                 }
@@ -264,6 +276,8 @@ namespace OnnxRuntimeInference
             float[] tensor,
             int originalWidth,
             int originalHeight,
+            long sourceFrameId,
+            DateTime sourceTimestampUtc,
             TimeSpan resizeDuration,
             TimeSpan tensorDuration,
             InferencePreprocessBackend preprocessBackend = InferencePreprocessBackend.CpuResizeCpuTensor)
@@ -292,6 +306,8 @@ namespace OnnxRuntimeInference
                 originalHeight,
                 inputWidth,
                 inputHeight,
+                sourceFrameId,
+                sourceTimestampUtc,
                 resizeDuration,
                 tensorDuration,
                 inferenceWatch.Elapsed,

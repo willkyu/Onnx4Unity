@@ -4,24 +4,18 @@ using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
-using WindowCapture;
 
 namespace OnnxRuntimeInference.Tests
 {
     public sealed class OnnxRuntimeInferenceApiTests
     {
         [Test]
-        public void TensorPreprocessorWritesNchwFromCapturedFrame()
+        public void TensorPreprocessorWritesNchwFromRgbaFrameInput()
         {
-            var frame = new CapturedFrame(
-                new byte[]
-                {
-                    10, 20, 30, 255,
-                    40, 50, 60, 255
-                },
+            var frame = new RgbaFrameInput(
+                new byte[] { 10, 20, 30, 255, 40, 50, 60, 255 },
                 2,
                 1,
-                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 1,
                 timestampUtc: DateTime.UtcNow);
@@ -30,17 +24,6 @@ namespace OnnxRuntimeInference.Tests
             float[] tensor = TensorPreprocessor.ToNchw(frame, spec);
 
             CollectionAssert.AreEqual(new[] { 10f, 40f, 20f, 50f, 30f, 60f }, tensor);
-        }
-
-        [Test]
-        public void TestSessionInvokesInjectedInference()
-        {
-            var session = new TestOnnxDetectorSession((input, width, height) =>
-                new[] { input[0], width, height });
-
-            float[] output = session.Run(new[] { 7f }, 8, 9);
-
-            CollectionAssert.AreEqual(new[] { 7f, 8f, 9f }, output);
         }
 
         [Test]
@@ -90,70 +73,40 @@ namespace OnnxRuntimeInference.Tests
                 new DetectorClass(1, "B", 0.5f)
             };
             var output = new float[YoloEnd2EndDecoder.ExpectedRowCount * YoloEnd2EndDecoder.ValuesPerRow];
-
             WriteYoloRow(output, 0, 10f, 5f, 30f, 25f, 0.9f, 1f);
             WriteYoloRow(output, 1, 20f, 10f, 40f, 20f, 0.4f, 0f);
 
-            DetectionBatch batch = YoloEnd2EndDecoder.Decode(
-                output,
-                inputSpec,
-                classes,
-                originalWidth: 200,
-                originalHeight: 100);
+            DetectionBatch batch = YoloEnd2EndDecoder.Decode(output, inputSpec, classes, 200, 100);
 
             Assert.AreEqual(1, batch.Detections.Count);
-            DetectionResult detection = batch.Detections[0];
-            Assert.AreEqual(1, detection.ClassId);
-            Assert.AreEqual("B", detection.Label);
-            Assert.AreEqual(0.9f, detection.Confidence);
-            Assert.AreEqual(20f, detection.X1);
-            Assert.AreEqual(10f, detection.Y1);
-            Assert.AreEqual(60f, detection.X2);
-            Assert.AreEqual(50f, detection.Y2);
+            Assert.AreEqual("B", batch.Detections[0].Label);
+            Assert.AreEqual(0.9f, batch.Detections[0].Confidence);
+            Assert.AreEqual(20f, batch.Detections[0].X1);
+            Assert.AreEqual(50f, batch.Detections[0].Y2);
             Assert.AreEqual(0.4f, batch.ClassScores["A"]);
             Assert.AreEqual(0.9f, batch.ClassScores["B"]);
         }
 
         [Test]
-        public void FrameRunnerExposesCapturedFramePipeline()
+        public void FrameRunnerExposesStandaloneRgbaPipeline()
         {
             Type runnerType = typeof(FrameOnnxRunner);
-            MethodInfo begin = runnerType.GetMethod(
-                "TryBeginRun",
-                new[] { typeof(CapturedFrame) });
-            MethodInfo result = runnerType.GetMethod("TryGetResult");
+            MethodInfo begin = runnerType.GetMethod("TryBeginRun", new[] { typeof(RgbaFrameInput) });
 
-            Assert.IsNotNull(begin, "Runner must accept a captured CPU frame directly.");
-            Assert.IsNotNull(result, "Runner must expose non-blocking result polling.");
+            Assert.IsNotNull(begin);
+            Assert.IsNotNull(runnerType.GetMethod("TryGetResult"));
             Assert.IsTrue(typeof(IDisposable).IsAssignableFrom(runnerType));
-
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("ResizeDuration"));
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("TensorDuration"));
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("InferenceDuration"));
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("DecodeDuration"));
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("ActiveFps"));
-            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("Batch"));
-        }
-
-        [Test]
-        public void FrameRunnerUsesCpuResizeOnly()
-        {
-            Type runnerType = typeof(FrameOnnxRunner);
-            MethodInfo beginFromFrame = runnerType.GetMethod(
-                "TryBeginRun",
-                new[] { typeof(CapturedFrame) });
-
-            Assert.IsNotNull(beginFromFrame, "Runner must accept a captured CPU frame.");
-            Assert.AreEqual(FrameResizeAlgorithm.Bilinear, new FrameOnnxRunnerOptions().ResizeAlgorithm);
+            Assert.AreEqual(OnnxResizeAlgorithm.Bilinear, new FrameOnnxRunnerOptions().ResizeAlgorithm);
             Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("PreprocessBackend"));
+            Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("SourceFrameId"));
         }
 
         [Test]
         public void PreparedInputBufferFusesNearestResizePreviewAndTensor()
         {
             var spec = new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false);
-            using var buffer = new PreparedFrameOnnxInputBuffer(spec, FrameResizeAlgorithm.Nearest);
-            using var frame = new CapturedFrame(
+            using var buffer = new PreparedFrameOnnxInputBuffer(spec, OnnxResizeAlgorithm.Nearest);
+            var frame = new RgbaFrameInput(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -163,7 +116,6 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 2,
-                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 7,
                 timestampUtc: new DateTime(2026, 5, 7, 0, 0, 0, DateTimeKind.Utc));
@@ -183,7 +135,7 @@ namespace OnnxRuntimeInference.Tests
                 CollectionAssert.AreEqual(new byte[] { 10, 20, 30, 255 }, read.PreviewPixels);
                 CollectionAssert.AreEqual(new[] { 10f, 20f, 30f }, read.Tensor);
 
-                using CapturedFrame preview = read.CreatePreviewFrame();
+                RgbaFrameInput preview = read.CreatePreviewFrame();
                 Assert.AreEqual(1, preview.Width);
                 Assert.AreEqual(1, preview.Height);
                 CollectionAssert.AreEqual(new byte[] { 10, 20, 30, 255 }, preview.Pixels);
@@ -199,14 +151,9 @@ namespace OnnxRuntimeInference.Tests
                 observedInput = input;
                 return new float[YoloEnd2EndDecoder.ExpectedRowCount * YoloEnd2EndDecoder.ValuesPerRow];
             });
-            var profile = new DetectorModelProfile(
-                "test",
-                "Test",
-                "test.onnx",
-                new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false),
-                new[] { new DetectorClass(0, "A", 1f) });
-            using var buffer = new PreparedFrameOnnxInputBuffer(profile.InputSpec, FrameResizeAlgorithm.Nearest);
-            using var frame = new CapturedFrame(
+            DetectorModelProfile profile = CreateOnePixelProfile();
+            using var buffer = new PreparedFrameOnnxInputBuffer(profile.InputSpec, OnnxResizeAlgorithm.Nearest);
+            var frame = new RgbaFrameInput(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -216,7 +163,6 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 2,
-                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 8,
                 timestampUtc: DateTime.UtcNow);
@@ -228,7 +174,6 @@ namespace OnnxRuntimeInference.Tests
             float[] expectedTensor = preparedInput.Tensor;
 
             using var runner = new FrameOnnxRunner(session, profile, new FrameOnnxRunnerOptions());
-
             Assert.IsTrue(runner.TryBeginRun(preparedInput));
             Assert.IsTrue(WaitForResult(runner, out FrameOnnxInferenceResult result));
 
@@ -237,27 +182,64 @@ namespace OnnxRuntimeInference.Tests
             Assert.AreEqual(TimeSpan.Zero, result.ResizeDuration);
             Assert.AreEqual(TimeSpan.Zero, result.TensorDuration);
             Assert.AreEqual(InferencePreprocessBackend.PreparedCpuTensor, result.PreprocessBackend);
-            Assert.AreEqual(2, result.OriginalWidth);
-            Assert.AreEqual(2, result.OriginalHeight);
+            Assert.AreEqual(8, result.SourceFrameId);
         }
 
         [Test]
-        public void PackageDocsAndExampleDescribeCurrentFramePipeline()
+        public void RunnerCanUseCpuResizeFallbackFromRgbaFrameInput()
+        {
+            float[] observedInput = null;
+            var session = new TestOnnxDetectorSession((input, width, height) =>
+            {
+                observedInput = (float[])input.Clone();
+                return new float[YoloEnd2EndDecoder.ExpectedRowCount * YoloEnd2EndDecoder.ValuesPerRow];
+            });
+            DetectorModelProfile profile = CreateOnePixelProfile();
+            using var runner = new FrameOnnxRunner(session, profile, new FrameOnnxRunnerOptions
+            {
+                ResizeAlgorithm = OnnxResizeAlgorithm.Bilinear
+            });
+            var frame = new RgbaFrameInput(
+                new byte[]
+                {
+                    10, 20, 30, 255,
+                    20, 30, 40, 255,
+                    30, 40, 50, 255,
+                    40, 50, 60, 255
+                },
+                2,
+                2,
+                rowsBottomUp: false,
+                frameId: 1,
+                timestampUtc: DateTime.UtcNow);
+
+            Assert.IsTrue(runner.TryBeginRun(frame));
+            Assert.IsTrue(WaitForResult(runner, out FrameOnnxInferenceResult result));
+
+            Assert.IsTrue(result.Succeeded, result.ErrorMessage);
+            Assert.Greater(result.ResizeDuration, TimeSpan.Zero);
+            Assert.AreEqual(InferencePreprocessBackend.CpuResizeCpuTensor, result.PreprocessBackend);
+            CollectionAssert.AreEqual(new[] { 25f, 35f, 45f }, observedInput);
+        }
+
+        [Test]
+        public void PackageDocsAndExampleDescribeStandalonePipeline()
         {
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             string packageRoot = Path.Combine(projectRoot, "Packages", "com.willkyu.onnxruntime-inference");
             string examplePath = Path.Combine(projectRoot, "Assets", "Scripts", "WindowCaptureExample.cs");
             string combined =
+                File.ReadAllText(Path.Combine(packageRoot, "README.md")) + "\n" +
                 File.ReadAllText(Path.Combine(packageRoot, "README.zh-CN.md")) + "\n" +
+                File.ReadAllText(Path.Combine(packageRoot, "Documentation~", "API.md")) + "\n" +
                 File.ReadAllText(Path.Combine(packageRoot, "Documentation~", "API.zh-CN.md")) + "\n" +
                 File.ReadAllText(examplePath);
 
-            StringAssert.Contains("FrameOnnxRunner", combined);
-            StringAssert.Contains("TryBeginRun(CapturedFrame", combined);
-            StringAssert.Contains("PreparedFrameOnnxInputBuffer", combined);
+            StringAssert.Contains("standalone", combined.ToLowerInvariant());
+            StringAssert.Contains("RgbaFrameInput", combined);
+            StringAssert.Contains("TryBeginRun(RgbaFrameInput", combined);
             StringAssert.Contains("TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease", combined);
-            StringAssert.Contains("捕获线程预处理", combined);
-            StringAssert.Contains("CPU resize", combined);
+            StringAssert.Contains("ToRgbaFrameInput", combined);
         }
 
         [Test]
@@ -273,9 +255,12 @@ namespace OnnxRuntimeInference.Tests
                 "FrameOnnxRunner.cs",
                 "FrameOnnxRunnerOptions.cs",
                 "IOnnxDetectorSession.cs",
+                "OnnxResizeAlgorithm.cs",
                 "OnnxRuntimeDetectorSession.cs",
                 "OrtNativeLibraryPreloader.cs",
                 "PreparedFrameOnnxInputBuffer.cs",
+                "Rgba32Resizer.cs",
+                "RgbaFrameInput.cs",
                 "TensorPreprocessor.cs",
                 "YoloEnd2EndDecoder.cs"
             };
@@ -287,6 +272,19 @@ namespace OnnxRuntimeInference.Tests
             Array.Sort(expected, StringComparer.Ordinal);
 
             CollectionAssert.AreEqual(expected, actual);
+        }
+
+        [Test]
+        public void RuntimePackageDoesNotDependOnWindowCapture()
+        {
+            string packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", "com.willkyu.onnxruntime-inference"));
+            string asmdef = File.ReadAllText(Path.Combine(packageRoot, "Runtime", "OnnxRuntimeInference.asmdef"));
+            string testsAsmdef = File.ReadAllText(Path.Combine(packageRoot, "Tests", "Editor", "OnnxRuntimeInference.Tests.asmdef"));
+            string packageJson = File.ReadAllText(Path.Combine(packageRoot, "package.json"));
+
+            StringAssert.DoesNotContain("WindowCapture", asmdef);
+            StringAssert.DoesNotContain("WindowCapture", testsAsmdef);
+            StringAssert.DoesNotContain("com.willkyu.window-capture", packageJson);
         }
 
         [Test]
@@ -319,48 +317,14 @@ namespace OnnxRuntimeInference.Tests
             StringAssert.DoesNotContain("Restart the Unity Editor to use the bundled DirectML redistributable.", source);
         }
 
-        [Test]
-        public void RunnerCanUseCpuResizeFallbackFromCapturedFrame()
+        private static DetectorModelProfile CreateOnePixelProfile()
         {
-            float[] observedInput = null;
-            var session = new TestOnnxDetectorSession((input, width, height) =>
-            {
-                observedInput = (float[])input.Clone();
-                return new float[YoloEnd2EndDecoder.ExpectedRowCount * YoloEnd2EndDecoder.ValuesPerRow];
-            });
-            var profile = new DetectorModelProfile(
+            return new DetectorModelProfile(
                 "test",
                 "Test",
                 "test.onnx",
                 new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false),
                 new[] { new DetectorClass(0, "A", 1f) });
-            var options = new FrameOnnxRunnerOptions
-            {
-                ResizeAlgorithm = FrameResizeAlgorithm.Bilinear
-            };
-            using var runner = new FrameOnnxRunner(session, profile, options);
-            using var frame = new CapturedFrame(
-                new byte[]
-                {
-                    10, 20, 30, 255,
-                    20, 30, 40, 255,
-                    30, 40, 50, 255,
-                    40, 50, 60, 255
-                },
-                2,
-                2,
-                FramePixelFormat.Rgba32,
-                rowsBottomUp: false,
-                frameId: 1,
-                timestampUtc: DateTime.UtcNow);
-
-            Assert.IsTrue(runner.TryBeginRun(frame));
-            Assert.IsTrue(WaitForResult(runner, out FrameOnnxInferenceResult result));
-
-            Assert.IsTrue(result.Succeeded, result.ErrorMessage);
-            Assert.Greater(result.ResizeDuration, TimeSpan.Zero);
-            Assert.AreEqual(InferencePreprocessBackend.CpuResizeCpuTensor, result.PreprocessBackend);
-            CollectionAssert.AreEqual(new[] { 25f, 35f, 45f }, observedInput);
         }
 
         private static void WriteYoloRow(

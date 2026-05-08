@@ -1,5 +1,4 @@
 using System;
-using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
@@ -7,14 +6,14 @@ namespace OnnxRuntimeInference
     {
         private readonly object syncRoot = new object();
         private readonly DetectorInputSpec inputSpec;
-        private readonly FrameResizeAlgorithm resizeAlgorithm;
+        private readonly OnnxResizeAlgorithm resizeAlgorithm;
         private readonly Slot[] slots;
         private int latestSlotIndex = -1;
         private bool disposed;
 
         public PreparedFrameOnnxInputBuffer(
             DetectorInputSpec inputSpec,
-            FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Nearest)
+            OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Nearest)
         {
             this.inputSpec = inputSpec ?? throw new ArgumentNullException(nameof(inputSpec));
             this.resizeAlgorithm = resizeAlgorithm;
@@ -30,7 +29,7 @@ namespace OnnxRuntimeInference
 
         public int Width => inputSpec.Width;
         public int Height => inputSpec.Height;
-        public FrameResizeAlgorithm ResizeAlgorithm => resizeAlgorithm;
+        public OnnxResizeAlgorithm ResizeAlgorithm => resizeAlgorithm;
 
         public bool TryAcquireWrite(out WriteLease lease)
         {
@@ -148,17 +147,15 @@ namespace OnnxRuntimeInference
             return false;
         }
 
-        private bool TryPrepareSlot(int slotIndex, CapturedFrame sourceFrame)
+        private bool TryPrepareSlot(int slotIndex, RgbaFrameInput sourceFrame)
         {
-            if (sourceFrame == null)
-                throw new ArgumentNullException(nameof(sourceFrame));
-            if (sourceFrame.Format != FramePixelFormat.Rgba32 || sourceFrame.RowsBottomUp)
+            if (sourceFrame.RowsBottomUp)
                 return false;
             if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
                 return false;
 
             Slot slot = slots[slotIndex];
-            if (resizeAlgorithm == FrameResizeAlgorithm.Nearest)
+            if (resizeAlgorithm == OnnxResizeAlgorithm.Nearest)
                 PrepareNearest(sourceFrame, slot);
             else
                 PrepareBilinear(sourceFrame, slot);
@@ -202,7 +199,7 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareNearest(CapturedFrame sourceFrame, Slot slot)
+        private void PrepareNearest(RgbaFrameInput sourceFrame, Slot slot)
         {
             byte[] source = sourceFrame.Pixels;
             byte[] preview = slot.PreviewPixels;
@@ -253,7 +250,7 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareBilinear(CapturedFrame sourceFrame, Slot slot)
+        private void PrepareBilinear(RgbaFrameInput sourceFrame, Slot slot)
         {
             Rgba32Resizer.ResizeBilinear(
                 sourceFrame.Pixels,
@@ -267,10 +264,8 @@ namespace OnnxRuntimeInference
                 slot.PreviewPixels,
                 inputSpec.Width,
                 inputSpec.Height,
-                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 inputSpec,
-                ColorOrder.Rgb,
                 slot.Tensor);
         }
 
@@ -316,7 +311,7 @@ namespace OnnxRuntimeInference
                 this.slotIndex = slotIndex;
             }
 
-            public bool TryPrepare(CapturedFrame sourceFrame)
+            public bool TryPrepare(RgbaFrameInput sourceFrame)
             {
                 if (owner == null)
                     throw new ObjectDisposedException(nameof(WriteLease));
@@ -356,16 +351,15 @@ namespace OnnxRuntimeInference
             public byte[] PreviewPixels => Slot.PreviewPixels;
             public float[] Tensor => Slot.Tensor;
 
-            public CapturedFrame CreatePreviewFrame()
+            public RgbaFrameInput CreatePreviewFrame()
             {
-                return new CapturedFrame(
+                return new RgbaFrameInput(
                     PreviewPixels,
                     Width,
                     Height,
-                    FramePixelFormat.Rgba32,
                     rowsBottomUp: false,
-                    FrameId,
-                    TimestampUtc);
+                    frameId: FrameId,
+                    timestampUtc: TimestampUtc);
             }
 
             public void Dispose()

@@ -1,66 +1,45 @@
 using System;
-using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
     public static class TensorPreprocessor
     {
-        public static float[] ToNchw(
-            CapturedFrame frame,
-            DetectorInputSpec inputSpec,
-            ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
+        public static float[] ToNchw(RgbaFrameInput frame, DetectorInputSpec inputSpec)
         {
-            if (frame == null)
-                throw new ArgumentNullException(nameof(frame));
-
             return ToNchw(
                 frame.Pixels,
                 frame.Width,
                 frame.Height,
-                frame.Format,
                 frame.RowsBottomUp,
-                inputSpec,
-                sourceColorOrderOverride);
+                inputSpec);
         }
 
         public static float[] ToNchw(
-            byte[] pixels,
+            byte[] rgba32,
             int width,
             int height,
-            FramePixelFormat format,
             bool rowsBottomUp,
-            DetectorInputSpec inputSpec,
-            ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
+            DetectorInputSpec inputSpec)
         {
             if (inputSpec == null)
                 throw new ArgumentNullException(nameof(inputSpec));
 
             int pixelCount = checked(width * height);
             var tensor = new float[pixelCount * 3];
-            WriteNchw(
-                pixels,
-                width,
-                height,
-                format,
-                rowsBottomUp,
-                inputSpec,
-                sourceColorOrderOverride,
-                tensor);
+            WriteNchw(rgba32, width, height, rowsBottomUp, inputSpec, tensor);
             return tensor;
         }
 
         public static void WriteNchw(
-            byte[] pixels,
+            byte[] rgba32,
             int width,
             int height,
-            FramePixelFormat format,
             bool rowsBottomUp,
             DetectorInputSpec inputSpec,
-            ColorOrder sourceColorOrderOverride,
             float[] tensor)
         {
-            if (pixels == null)
-                throw new ArgumentNullException(nameof(pixels));
+            if (rgba32 == null)
+                throw new ArgumentNullException(nameof(rgba32));
             if (inputSpec == null)
                 throw new ArgumentNullException(nameof(inputSpec));
             if (tensor == null)
@@ -69,88 +48,40 @@ namespace OnnxRuntimeInference
                 throw new InvalidOperationException("Frame size does not match detector input size.");
 
             int pixelCount = checked(width * height);
+            if (rgba32.Length < pixelCount * 4)
+                throw new ArgumentException("RGBA32 buffer is smaller than width * height * 4.", nameof(rgba32));
             if (tensor.Length < pixelCount * 3)
                 throw new ArgumentException("Tensor buffer is smaller than expected NCHW float count.", nameof(tensor));
 
-            int channelsPerPixel = GetChannelCount(format);
-            int expectedBytes = checked(width * height * channelsPerPixel);
-            if (pixels.Length < expectedBytes)
-                throw new ArgumentException("Pixel buffer is smaller than expected frame byte count.", nameof(pixels));
+            float scale = inputSpec.NormalizeToUnitRange ? 1f / 255f : 1f;
+            bool bgrTensor = inputSpec.TensorColorOrder == ColorOrder.Bgr;
 
             for (int y = 0; y < height; y++)
             {
                 int sourceY = rowsBottomUp ? (height - 1 - y) : y;
-                int rowOffset = sourceY * width * channelsPerPixel;
+                int rowOffset = sourceY * width * 4;
                 for (int x = 0; x < width; x++)
                 {
-                    int sourceIndex = rowOffset + (x * channelsPerPixel);
-                    ReadRgb(pixels, sourceIndex, format, sourceColorOrderOverride, out float r, out float g, out float b);
-
-                    if (inputSpec.TensorColorOrder == ColorOrder.Bgr)
-                    {
-                        float temp = r;
-                        r = b;
-                        b = temp;
-                    }
-
-                    if (inputSpec.NormalizeToUnitRange)
-                    {
-                        r /= 255f;
-                        g /= 255f;
-                        b /= 255f;
-                    }
-
+                    int sourceIndex = rowOffset + x * 4;
                     int flatIndex = y * width + x;
-                    tensor[flatIndex] = r;
-                    tensor[pixelCount + flatIndex] = g;
-                    tensor[(pixelCount * 2) + flatIndex] = b;
+
+                    float r = rgba32[sourceIndex] * scale;
+                    float g = rgba32[sourceIndex + 1] * scale;
+                    float b = rgba32[sourceIndex + 2] * scale;
+
+                    if (bgrTensor)
+                    {
+                        tensor[flatIndex] = b;
+                        tensor[pixelCount + flatIndex] = g;
+                        tensor[(pixelCount * 2) + flatIndex] = r;
+                    }
+                    else
+                    {
+                        tensor[flatIndex] = r;
+                        tensor[pixelCount + flatIndex] = g;
+                        tensor[(pixelCount * 2) + flatIndex] = b;
+                    }
                 }
-            }
-        }
-
-        private static int GetChannelCount(FramePixelFormat format)
-        {
-            switch (format)
-            {
-                case FramePixelFormat.Rgba32:
-                case FramePixelFormat.Bgra32:
-                    return 4;
-                case FramePixelFormat.Rgb24:
-                case FramePixelFormat.Bgr24:
-                    return 3;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported frame format.");
-            }
-        }
-
-        private static void ReadRgb(
-            byte[] pixels,
-            int sourceIndex,
-            FramePixelFormat format,
-            ColorOrder sourceColorOrderOverride,
-            out float r,
-            out float g,
-            out float b)
-        {
-            byte c0 = pixels[sourceIndex];
-            byte c1 = pixels[sourceIndex + 1];
-            byte c2 = pixels[sourceIndex + 2];
-
-            bool sourceIsBgr = format == FramePixelFormat.Bgr24 ||
-                format == FramePixelFormat.Bgra32 ||
-                sourceColorOrderOverride == ColorOrder.Bgr;
-
-            if (sourceIsBgr)
-            {
-                b = c0;
-                g = c1;
-                r = c2;
-            }
-            else
-            {
-                r = c0;
-                g = c1;
-                b = c2;
             }
         }
     }
