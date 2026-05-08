@@ -223,23 +223,32 @@ namespace OnnxRuntimeInference.Tests
         }
 
         [Test]
-        public void PackageDocsAndExampleDescribeStandalonePipeline()
+        public void PackageDocsDescribeStandalonePipeline()
         {
-            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string packageRoot = Path.Combine(projectRoot, "Packages", "com.willkyu.onnxruntime-inference");
-            string examplePath = Path.Combine(projectRoot, "Assets", "Scripts", "WindowCaptureExample.cs");
+            string packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", "com.willkyu.onnxruntime-inference"));
             string combined =
                 File.ReadAllText(Path.Combine(packageRoot, "README.md")) + "\n" +
                 File.ReadAllText(Path.Combine(packageRoot, "README.zh-CN.md")) + "\n" +
                 File.ReadAllText(Path.Combine(packageRoot, "Documentation~", "API.md")) + "\n" +
-                File.ReadAllText(Path.Combine(packageRoot, "Documentation~", "API.zh-CN.md")) + "\n" +
-                File.ReadAllText(examplePath);
+                File.ReadAllText(Path.Combine(packageRoot, "Documentation~", "API.zh-CN.md"));
 
             StringAssert.Contains("standalone", combined.ToLowerInvariant());
             StringAssert.Contains("RgbaFrameInput", combined);
             StringAssert.Contains("TryBeginRun(RgbaFrameInput", combined);
             StringAssert.Contains("TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease", combined);
             StringAssert.Contains("ToRgbaFrameInput", combined);
+        }
+
+        [Test]
+        public void PackageTestsDoNotDependOnHostProjectExamples()
+        {
+            string packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", "com.willkyu.onnxruntime-inference"));
+            string source = File.ReadAllText(Path.Combine(packageRoot, "Tests", "Editor", "OnnxRuntimeInferenceApiTests.cs"));
+            string forbiddenProjectExamplePath = "Path.Combine(projectRoot, " + "\"Assets\"";
+            string forbiddenExampleRead = "File.ReadAllText(" + "examplePath)";
+
+            StringAssert.DoesNotContain(forbiddenProjectExamplePath, source);
+            StringAssert.DoesNotContain(forbiddenExampleRead, source);
         }
 
         [Test]

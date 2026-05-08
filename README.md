@@ -73,7 +73,7 @@ if (preparedBuffer.TryAcquireLatest(out PreparedFrameOnnxInputBuffer.ReadLease i
 When using `com.willkyu.window-capture`, keep the dependency in your project or sample, not in this package:
 
 ```csharp
-static RgbaFrameInput ToOnnxInput(WindowCapture.CapturedFrame frame)
+static RgbaFrameInput ToRgbaFrameInput(WindowCapture.CapturedFrame frame)
 {
     if (frame.Format != WindowCapture.FramePixelFormat.Rgba32)
         throw new InvalidOperationException("ONNX input requires RGBA32.");

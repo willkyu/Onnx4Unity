@@ -73,7 +73,7 @@ if (preparedBuffer.TryAcquireLatest(out PreparedFrameOnnxInputBuffer.ReadLease i
 如果使用 `com.willkyu.window-capture`，依赖应放在项目或示例中，而不是放在本包中：
 
 ```csharp
-static RgbaFrameInput ToOnnxInput(WindowCapture.CapturedFrame frame)
+static RgbaFrameInput ToRgbaFrameInput(WindowCapture.CapturedFrame frame)
 {
     if (frame.Format != WindowCapture.FramePixelFormat.Rgba32)
         throw new InvalidOperationException("ONNX input requires RGBA32.");
