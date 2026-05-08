@@ -241,53 +241,6 @@ namespace OnnxRuntimeInference.Tests
         }
 
         [Test]
-        public void PreparedInputBufferCanDropReadyFramesWithoutFreeingActiveReadLease()
-        {
-            var spec = new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false);
-            using var buffer = new PreparedFrameOnnxInputBuffer(spec, OnnxResizeAlgorithm.Nearest);
-
-            Assert.IsTrue(buffer.TryAcquireWrite(out PreparedFrameOnnxInputBuffer.WriteLease firstWrite));
-            using (firstWrite)
-            using (var firstFrame = new OnnxInputFrame(
-                       new byte[] { 10, 20, 30, 255 },
-                       1,
-                       1,
-                       OnnxFramePixelFormat.Rgba32,
-                       rowsBottomUp: false,
-                       frameId: 1,
-                       timestampUtc: DateTime.UtcNow))
-            {
-                Assert.IsTrue(firstWrite.TryPrepare(firstFrame));
-            }
-
-            Assert.IsTrue(buffer.TryAcquireLatest(out PreparedFrameOnnxInputBuffer.ReadLease activeRead));
-
-            Assert.IsTrue(buffer.TryAcquireWrite(out PreparedFrameOnnxInputBuffer.WriteLease secondWrite));
-            using (secondWrite)
-            using (var secondFrame = new OnnxInputFrame(
-                       new byte[] { 40, 50, 60, 255 },
-                       1,
-                       1,
-                       OnnxFramePixelFormat.Rgba32,
-                       rowsBottomUp: false,
-                       frameId: 2,
-                       timestampUtc: DateTime.UtcNow))
-            {
-                Assert.IsTrue(secondWrite.TryPrepare(secondFrame));
-            }
-
-            buffer.ClearReadyFrames();
-
-            Assert.IsFalse(buffer.TryAcquireLatest(out _), "Ready stale frames should be dropped.");
-            Assert.IsTrue(buffer.TryAcquireWrite(out PreparedFrameOnnxInputBuffer.WriteLease freeWrite));
-            freeWrite.Dispose();
-
-            activeRead.Dispose();
-            Assert.IsTrue(buffer.TryAcquireWrite(out PreparedFrameOnnxInputBuffer.WriteLease releasedReadSlotWrite));
-            releasedReadSlotWrite.Dispose();
-        }
-
-        [Test]
         public void PackageDocsAndExampleDescribeCurrentFramePipeline()
         {
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));

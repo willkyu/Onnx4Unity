@@ -273,8 +273,6 @@ bool TryCopyLatestPreviewPixels(
 
 `ReadLease` 属性：`Width`、`Height` 是模型输入尺寸；`OriginalWidth`、`OriginalHeight` 是原始尺寸；`FrameId`、`TimestampUtc` 是帧信息；`PreviewPixels` 是模型尺寸 RGBA32 preview；`Tensor` 是 NCHW `float[]`。`CreatePreviewInputFrame()` 返回包装 preview 的 `OnnxInputFrame`。
 
-`ClearReadyFrames()` 会丢弃尚未被读取的 latest 输入，但保留正在 `ReadLease` 中使用的 slot。切换捕获源时可用它清理旧源 prepared 帧，避免新源启动后先消费旧 tensor。
-
 ## 推理与解码
 
 ### `FrameOnnxRunnerOptions`

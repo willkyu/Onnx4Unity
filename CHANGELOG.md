@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.1.11 - 2026-05-08
-
-- Added `PreparedFrameOnnxInputBuffer.ClearReadyFrames()` for safe source-switch cleanup.
-- Updated the example to avoid stale prepared tensors and stale inference results after switching capture sources.
-- Added worker generation checks so old capture workers cannot resume after a new source starts.
-
 ## 0.1.10 - 2026-05-08
 
 - Removed per-frame `OnnxInputFrame` wrapper allocation from the WindowCapture bridge hot path.

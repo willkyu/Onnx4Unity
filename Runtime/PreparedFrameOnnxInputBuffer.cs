@@ -131,21 +131,6 @@ namespace OnnxRuntimeInference
             }
         }
 
-        public void ClearReadyFrames()
-        {
-            ThrowIfDisposed();
-
-            lock (syncRoot)
-            {
-                latestSlotIndex = -1;
-                for (int i = 0; i < slots.Length; i++)
-                {
-                    if (slots[i].State == SlotState.Ready)
-                        slots[i].State = SlotState.Free;
-                }
-            }
-        }
-
         public void Dispose()
         {
             disposed = true;
