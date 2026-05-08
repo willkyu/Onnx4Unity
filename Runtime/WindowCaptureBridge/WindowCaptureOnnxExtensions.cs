@@ -24,18 +24,32 @@ namespace OnnxRuntimeInference
         {
             if (runner == null)
                 throw new ArgumentNullException(nameof(runner));
+            if (sourceFrame == null)
+                throw new ArgumentNullException(nameof(sourceFrame));
 
-            using OnnxInputFrame inputFrame = sourceFrame.ToOnnxInputFrame();
-            return runner.TryBeginRun(inputFrame);
+            return runner.TryBeginRun(
+                sourceFrame.Pixels,
+                sourceFrame.Width,
+                sourceFrame.Height,
+                ToOnnxFramePixelFormat(sourceFrame.Format),
+                sourceFrame.RowsBottomUp);
         }
 
         public static bool TryPrepare(this PreparedFrameOnnxInputBuffer.WriteLease lease, CapturedFrame sourceFrame)
         {
             if (lease == null)
                 throw new ArgumentNullException(nameof(lease));
+            if (sourceFrame == null)
+                throw new ArgumentNullException(nameof(sourceFrame));
 
-            using OnnxInputFrame inputFrame = sourceFrame.ToOnnxInputFrame();
-            return lease.TryPrepare(inputFrame);
+            return lease.TryPrepare(
+                sourceFrame.Pixels,
+                sourceFrame.Width,
+                sourceFrame.Height,
+                ToOnnxFramePixelFormat(sourceFrame.Format),
+                sourceFrame.RowsBottomUp,
+                sourceFrame.FrameId,
+                sourceFrame.TimestampUtc);
         }
 
         public static CapturedFrame CreatePreviewFrame(this PreparedFrameOnnxInputBuffer.ReadLease lease)

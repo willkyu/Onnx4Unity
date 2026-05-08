@@ -80,11 +80,13 @@ namespace OnnxRuntimeInference
         {
             if (sourceFrame == null)
                 throw new ArgumentNullException(nameof(sourceFrame));
-            if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
-                throw new ArgumentException("Input frame size must be positive.", nameof(sourceFrame));
-            ThrowIfDisposed();
 
-            return TryBeginCpuRun(sourceFrame);
+            return TryBeginRun(
+                sourceFrame.Pixels,
+                sourceFrame.Width,
+                sourceFrame.Height,
+                sourceFrame.Format,
+                sourceFrame.RowsBottomUp);
         }
 
         public bool TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease preparedInput)
@@ -142,9 +144,30 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private bool TryBeginCpuRun(OnnxInputFrame sourceFrame)
+        internal bool TryBeginRun(
+            byte[] pixels,
+            int width,
+            int height,
+            OnnxFramePixelFormat format,
+            bool rowsBottomUp)
         {
-            if (sourceFrame.Format != OnnxFramePixelFormat.Rgba32)
+            if (pixels == null)
+                throw new ArgumentNullException(nameof(pixels));
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Input frame size must be positive.", nameof(width));
+            ThrowIfDisposed();
+
+            return TryBeginCpuRun(pixels, width, height, format, rowsBottomUp);
+        }
+
+        private bool TryBeginCpuRun(
+            byte[] pixels,
+            int width,
+            int height,
+            OnnxFramePixelFormat format,
+            bool rowsBottomUp)
+        {
+            if (format != OnnxFramePixelFormat.Rgba32)
                 throw new InvalidOperationException("CPU resize currently requires RGBA32 input frames.");
 
             if (!TryEnterRun())
@@ -152,14 +175,14 @@ namespace OnnxRuntimeInference
 
             try
             {
-                int sourceByteCount = OnnxFramePixelFormatUtility.GetByteCount(sourceFrame.Width, sourceFrame.Height, sourceFrame.Format);
+                int sourceByteCount = OnnxFramePixelFormatUtility.GetByteCount(width, height, format);
                 var sourcePixels = new byte[sourceByteCount];
-                Buffer.BlockCopy(sourceFrame.Pixels, 0, sourcePixels, 0, sourceByteCount);
+                Buffer.BlockCopy(pixels, 0, sourcePixels, 0, sourceByteCount);
 
-                if (sourceFrame.RowsBottomUp)
-                    FlipRgbaVerticalInPlace(sourcePixels, sourceFrame.Width, sourceFrame.Height);
+                if (rowsBottomUp)
+                    FlipRgbaVerticalInPlace(sourcePixels, width, height);
 
-                BeginCpuResizeInference(sourcePixels, sourceFrame.Width, sourceFrame.Height);
+                BeginCpuResizeInference(sourcePixels, width, height);
                 return true;
             }
             catch
