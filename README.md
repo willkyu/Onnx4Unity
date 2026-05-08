@@ -1,54 +1,50 @@
 # willkyu ONNX Runtime Inference
 
-This is a lightweight Unity UPM package for sending CPU image frames or prepared NCHW tensors into ONNX Runtime detector models, with the help of Codex.
-
-The core package can run independently of `com.willkyu.window-capture`. When Window Capture For Unity is also installed, the included `WindowCaptureBridge` assembly automatically provides `CapturedFrame` extension methods so the current capture-to-inference usage stays the same.
+This is a lightweight Unity UPM package for sending frames captured by `com.willkyu.window-capture` into ONNX Runtime detector models, with the help of Codex.
 
 ## Scope
 
 - Runs ONNX models through `Microsoft.ML.OnnxRuntime.dll`.
 - Supports `DetectorRuntimeKind.OnnxRuntimeDirectML` on Windows and falls back to CPU when DirectML initialization fails.
 - Bundles x64 `onnxruntime.dll`, `onnxruntime_providers_shared.dll`, `DirectML.dll`, and managed `Microsoft.ML.OnnxRuntime.dll`.
-- Uses `FrameOnnxRunner` for the image-frame to detection-result path: CPU resize, NCHW tensor conversion, ONNX Runtime, and YOLO end2end decode.
-- Uses `PreparedFrameOnnxInputBuffer` for the original project style fast path: a capture thread preprocesses the original frame and writes model-sized preview bytes plus NCHW tensor in one pass; the inference thread only takes the latest tensor lease and calls `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)`.
+- Uses `FrameOnnxRunner` for the main `CapturedFrame` to detection-result path: CPU resize, NCHW tensor conversion, ONNX Runtime, and YOLO end2end decode.
+- Uses `PreparedFrameOnnxInputBuffer` for the original project style fast path: a capture thread preprocesses the original frame and writes model-sized preview bytes plus NCHW tensor in one pass; the main thread only takes the latest tensor lease and calls `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)`.
 - Uses `DetectorJsonConfigLoader` to read `detectors.json` model input size, tensor color order, normalization, and class thresholds.
 
-This package does not include model files, business UI, window capture, or device capture implementations. Window/device capture is provided by `com.willkyu.window-capture`; this package only adapts it in the bridge layer.
+This package does not include model files, business UI, or window/device capture implementations. Capture and original/resized frame APIs are provided by `com.willkyu.window-capture`.
 
 ## Install
 
-For ONNX inference only, open `Window > Package Manager` in Unity, click `+`, choose `Add package from git URL...`, then enter:
+In Unity, open `Window > Package Manager`, click `+`, choose `Add package from git URL...`, then add the window capture package first:
 
 ```text
-https://github.com/willkyu/onnx4Unity.git
+https://github.com/<owner>/<repo>.git?path=Packages/com.willkyu.window-capture
 ```
 
-To use it with Window Capture For Unity, also add:
+Then add the ONNX inference package:
 
 ```text
-https://github.com/willkyu/WindowCapture4Unity.git
+https://github.com/<owner>/<repo>.git?path=Packages/com.willkyu.onnxruntime-inference
 ```
 
-You can also edit `Packages/manifest.json` directly:
+Replace `<owner>/<repo>` with the repository that contains these packages. You can also edit `Packages/manifest.json` directly:
 
 ```json
 {
   "dependencies": {
-    "com.willkyu.onnxruntime-inference": "https://github.com/willkyu/onnx4Unity.git",
-    "com.willkyu.window-capture": "https://github.com/willkyu/WindowCapture4Unity.git"
+    "com.willkyu.window-capture": "https://github.com/<owner>/<repo>.git?path=Packages/com.willkyu.window-capture",
+    "com.willkyu.onnxruntime-inference": "https://github.com/<owner>/<repo>.git?path=Packages/com.willkyu.onnxruntime-inference"
   }
 }
 ```
 
-`com.willkyu.window-capture` is not a hard dependency of this package. The core API still compiles and runs when it is not installed.
+## Basic Usage
 
-## Standalone Usage
-
-Run inference directly from caller-provided RGBA32 pixels:
+Run inference directly from a captured frame:
 
 ```csharp
-using System;
 using OnnxRuntimeInference;
+using WindowCapture;
 
 DetectorModelProfile profile = DetectorJsonConfigLoader.LoadFirstFromFile("Assets/detectors.json");
 using var session = new OnnxRuntimeDetectorSession(
@@ -57,23 +53,15 @@ using var session = new OnnxRuntimeDetectorSession(
 
 var options = new FrameOnnxRunnerOptions
 {
-    ResizeAlgorithm = OnnxResizeAlgorithm.Bilinear
+    ResizeAlgorithm = FrameResizeAlgorithm.Bilinear
 };
 
 using var runner = new FrameOnnxRunner(session, profile, options);
 
-using var frame = new OnnxInputFrame(
-    rgbaPixels,
-    width,
-    height,
-    OnnxFramePixelFormat.Rgba32,
-    rowsBottomUp: false,
-    frameId: 1,
-    timestampUtc: DateTime.UtcNow);
-
+using CapturedFrame frame = frameSource.Capture();
 if (runner.TryBeginRun(frame))
 {
-    // Poll the result later from Update or the caller loop.
+    // Poll the result later from Update.
 }
 
 if (runner.TryGetResult(out FrameOnnxInferenceResult result) && result.Succeeded)
@@ -82,27 +70,12 @@ if (runner.TryGetResult(out FrameOnnxInferenceResult result) && result.Succeeded
 }
 ```
 
-## Using WindowCapture4Unity
-
-After `com.willkyu.window-capture` is installed, the bridge assembly is enabled automatically. Existing `CapturedFrame` calls can stay in place:
-
-```csharp
-using OnnxRuntimeInference;
-using WindowCapture;
-
-using CapturedFrame frame = frameSource.CaptureOriginal();
-if (runner.TryBeginRun(frame))
-{
-    // The bridge temporarily wraps CapturedFrame as OnnxInputFrame.
-}
-```
-
 Capture-thread prepared fast path:
 
 ```csharp
 using var preparedBuffer = new PreparedFrameOnnxInputBuffer(
     profile.InputSpec,
-    OnnxResizeAlgorithm.Nearest);
+    FrameResizeAlgorithm.Nearest);
 
 if (preparedBuffer.TryAcquireWrite(out PreparedFrameOnnxInputBuffer.WriteLease write))
 {
@@ -118,7 +91,7 @@ if (preparedBuffer.TryAcquireLatest(out PreparedFrameOnnxInputBuffer.ReadLease p
 }
 ```
 
-`FrameOnnxRunner.ActiveFps` only includes active work: resize, tensor conversion, ORT inference, and decode. It does not include caller-side waiting from `inferenceInterval`. In the prepared fast path, resize and tensor conversion are already completed on the capture thread, so inference results report `ResizeDuration` and `TensorDuration` as zero and `PreprocessBackend` as `PreparedCpuTensor`.
+`FrameOnnxRunner.ActiveFps` only includes actual active work: resize, tensor conversion, ORT inference, and decode. It does not include caller-side waiting from `inferenceInterval`. In the prepared fast path, resize and tensor conversion are already completed on the capture thread, so inference results report `ResizeDuration` and `TensorDuration` as zero and `PreprocessBackend` as `PreparedCpuTensor`.
 
 ## Config Format
 

@@ -4,15 +4,16 @@ using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using WindowCapture;
 
 namespace OnnxRuntimeInference.Tests
 {
     public sealed class OnnxRuntimeInferenceApiTests
     {
         [Test]
-        public void TensorPreprocessorWritesNchwFromOnnxInputFrame()
+        public void TensorPreprocessorWritesNchwFromCapturedFrame()
         {
-            var frame = new OnnxInputFrame(
+            var frame = new CapturedFrame(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -20,7 +21,7 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 1,
-                OnnxFramePixelFormat.Rgba32,
+                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 1,
                 timestampUtc: DateTime.UtcNow);
@@ -114,15 +115,15 @@ namespace OnnxRuntimeInference.Tests
         }
 
         [Test]
-        public void FrameRunnerExposesOnnxInputFramePipeline()
+        public void FrameRunnerExposesCapturedFramePipeline()
         {
             Type runnerType = typeof(FrameOnnxRunner);
             MethodInfo begin = runnerType.GetMethod(
                 "TryBeginRun",
-                new[] { typeof(OnnxInputFrame) });
+                new[] { typeof(CapturedFrame) });
             MethodInfo result = runnerType.GetMethod("TryGetResult");
 
-            Assert.IsNotNull(begin, "Runner must accept a CPU input frame directly.");
+            Assert.IsNotNull(begin, "Runner must accept a captured CPU frame directly.");
             Assert.IsNotNull(result, "Runner must expose non-blocking result polling.");
             Assert.IsTrue(typeof(IDisposable).IsAssignableFrom(runnerType));
 
@@ -140,10 +141,10 @@ namespace OnnxRuntimeInference.Tests
             Type runnerType = typeof(FrameOnnxRunner);
             MethodInfo beginFromFrame = runnerType.GetMethod(
                 "TryBeginRun",
-                new[] { typeof(OnnxInputFrame) });
+                new[] { typeof(CapturedFrame) });
 
-            Assert.IsNotNull(beginFromFrame, "Runner must accept a CPU input frame.");
-            Assert.AreEqual(OnnxResizeAlgorithm.Bilinear, new FrameOnnxRunnerOptions().ResizeAlgorithm);
+            Assert.IsNotNull(beginFromFrame, "Runner must accept a captured CPU frame.");
+            Assert.AreEqual(FrameResizeAlgorithm.Bilinear, new FrameOnnxRunnerOptions().ResizeAlgorithm);
             Assert.IsNotNull(typeof(FrameOnnxInferenceResult).GetProperty("PreprocessBackend"));
         }
 
@@ -151,8 +152,8 @@ namespace OnnxRuntimeInference.Tests
         public void PreparedInputBufferFusesNearestResizePreviewAndTensor()
         {
             var spec = new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false);
-            using var buffer = new PreparedFrameOnnxInputBuffer(spec, OnnxResizeAlgorithm.Nearest);
-            using var frame = new OnnxInputFrame(
+            using var buffer = new PreparedFrameOnnxInputBuffer(spec, FrameResizeAlgorithm.Nearest);
+            using var frame = new CapturedFrame(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -162,7 +163,7 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 2,
-                OnnxFramePixelFormat.Rgba32,
+                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 7,
                 timestampUtc: new DateTime(2026, 5, 7, 0, 0, 0, DateTimeKind.Utc));
@@ -182,7 +183,7 @@ namespace OnnxRuntimeInference.Tests
                 CollectionAssert.AreEqual(new byte[] { 10, 20, 30, 255 }, read.PreviewPixels);
                 CollectionAssert.AreEqual(new[] { 10f, 20f, 30f }, read.Tensor);
 
-                using OnnxInputFrame preview = read.CreatePreviewInputFrame();
+                using CapturedFrame preview = read.CreatePreviewFrame();
                 Assert.AreEqual(1, preview.Width);
                 Assert.AreEqual(1, preview.Height);
                 CollectionAssert.AreEqual(new byte[] { 10, 20, 30, 255 }, preview.Pixels);
@@ -204,8 +205,8 @@ namespace OnnxRuntimeInference.Tests
                 "test.onnx",
                 new DetectorInputSpec(1, 1, ColorOrder.Rgb, normalizeToUnitRange: false),
                 new[] { new DetectorClass(0, "A", 1f) });
-            using var buffer = new PreparedFrameOnnxInputBuffer(profile.InputSpec, OnnxResizeAlgorithm.Nearest);
-            using var frame = new OnnxInputFrame(
+            using var buffer = new PreparedFrameOnnxInputBuffer(profile.InputSpec, FrameResizeAlgorithm.Nearest);
+            using var frame = new CapturedFrame(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -215,7 +216,7 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 2,
-                OnnxFramePixelFormat.Rgba32,
+                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 8,
                 timestampUtc: DateTime.UtcNow);
@@ -252,7 +253,6 @@ namespace OnnxRuntimeInference.Tests
                 File.ReadAllText(examplePath);
 
             StringAssert.Contains("FrameOnnxRunner", combined);
-            StringAssert.Contains("TryBeginRun(OnnxInputFrame", combined);
             StringAssert.Contains("TryBeginRun(CapturedFrame", combined);
             StringAssert.Contains("PreparedFrameOnnxInputBuffer", combined);
             StringAssert.Contains("TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease", combined);
@@ -273,10 +273,6 @@ namespace OnnxRuntimeInference.Tests
                 "FrameOnnxRunner.cs",
                 "FrameOnnxRunnerOptions.cs",
                 "IOnnxDetectorSession.cs",
-                "OnnxFramePixelFormat.cs",
-                "OnnxInputFrame.cs",
-                "OnnxResizeAlgorithm.cs",
-                "OnnxRgba32Resizer.cs",
                 "OnnxRuntimeDetectorSession.cs",
                 "OrtNativeLibraryPreloader.cs",
                 "PreparedFrameOnnxInputBuffer.cs",
@@ -291,52 +287,6 @@ namespace OnnxRuntimeInference.Tests
             Array.Sort(expected, StringComparer.Ordinal);
 
             CollectionAssert.AreEqual(expected, actual);
-        }
-
-        [Test]
-        public void CorePackageDoesNotDependOnWindowCapture()
-        {
-            string packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", "com.willkyu.onnxruntime-inference"));
-            string packageJson = File.ReadAllText(Path.Combine(packageRoot, "package.json"));
-            string coreAsmdef = File.ReadAllText(Path.Combine(packageRoot, "Runtime", "OnnxRuntimeInference.asmdef"));
-            string testAsmdef = File.ReadAllText(Path.Combine(packageRoot, "Tests", "Editor", "OnnxRuntimeInference.Tests.asmdef"));
-            string runtimeRoot = Path.Combine(packageRoot, "Runtime");
-
-            Assert.IsFalse(packageJson.Contains("com.willkyu.window-capture", StringComparison.Ordinal));
-            Assert.IsFalse(coreAsmdef.Contains("WindowCapture", StringComparison.Ordinal));
-            Assert.IsFalse(testAsmdef.Contains("WindowCapture", StringComparison.Ordinal));
-
-            foreach (string file in Directory.GetFiles(runtimeRoot, "*.cs", SearchOption.TopDirectoryOnly))
-            {
-                string source = File.ReadAllText(file);
-                Assert.IsFalse(source.Contains("using WindowCapture;", StringComparison.Ordinal), Path.GetFileName(file));
-                Assert.IsFalse(source.Contains("WindowCapture.", StringComparison.Ordinal), Path.GetFileName(file));
-            }
-        }
-
-        [Test]
-        public void WindowCaptureBridgePreservesCapturedFramePipeline()
-        {
-            string packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", "com.willkyu.onnxruntime-inference"));
-            string bridgeRoot = Path.Combine(packageRoot, "Runtime", "WindowCaptureBridge");
-            string bridgeAsmdefPath = Path.Combine(bridgeRoot, "OnnxRuntimeInference.WindowCaptureBridge.asmdef");
-            string bridgeSourcePath = Path.Combine(bridgeRoot, "WindowCaptureOnnxExtensions.cs");
-
-            Assert.IsTrue(File.Exists(bridgeAsmdefPath), "WindowCapture bridge asmdef must exist.");
-            Assert.IsTrue(File.Exists(bridgeSourcePath), "WindowCapture bridge extension source must exist.");
-
-            string bridgeAsmdef = File.ReadAllText(bridgeAsmdefPath);
-            string bridgeSource = File.ReadAllText(bridgeSourcePath);
-            StringAssert.Contains("WindowCapture", bridgeAsmdef);
-            StringAssert.Contains("OnnxRuntimeInference", bridgeAsmdef);
-            StringAssert.Contains("versionDefines", bridgeAsmdef);
-            StringAssert.Contains("com.willkyu.window-capture", bridgeAsmdef);
-            StringAssert.Contains("defineConstraints", bridgeAsmdef);
-            StringAssert.Contains("ONNXRUNTIME_INFERENCE_WINDOW_CAPTURE", bridgeAsmdef);
-            StringAssert.Contains("TryBeginRun(this FrameOnnxRunner runner, CapturedFrame sourceFrame)", bridgeSource);
-            StringAssert.Contains("TryPrepare(this PreparedFrameOnnxInputBuffer.WriteLease lease, CapturedFrame sourceFrame)", bridgeSource);
-            StringAssert.Contains("CreatePreviewFrame(this PreparedFrameOnnxInputBuffer.ReadLease lease)", bridgeSource);
-            StringAssert.Contains("ToOnnxInputFrame", bridgeSource);
         }
 
         [Test]
@@ -370,7 +320,7 @@ namespace OnnxRuntimeInference.Tests
         }
 
         [Test]
-        public void RunnerCanUseCpuResizeFallbackFromOnnxInputFrame()
+        public void RunnerCanUseCpuResizeFallbackFromCapturedFrame()
         {
             float[] observedInput = null;
             var session = new TestOnnxDetectorSession((input, width, height) =>
@@ -386,10 +336,10 @@ namespace OnnxRuntimeInference.Tests
                 new[] { new DetectorClass(0, "A", 1f) });
             var options = new FrameOnnxRunnerOptions
             {
-                ResizeAlgorithm = OnnxResizeAlgorithm.Bilinear
+                ResizeAlgorithm = FrameResizeAlgorithm.Bilinear
             };
             using var runner = new FrameOnnxRunner(session, profile, options);
-            using var frame = new OnnxInputFrame(
+            using var frame = new CapturedFrame(
                 new byte[]
                 {
                     10, 20, 30, 255,
@@ -399,7 +349,7 @@ namespace OnnxRuntimeInference.Tests
                 },
                 2,
                 2,
-                OnnxFramePixelFormat.Rgba32,
+                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 frameId: 1,
                 timestampUtc: DateTime.UtcNow);

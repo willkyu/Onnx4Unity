@@ -1,11 +1,12 @@
 using System;
+using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
     public static class TensorPreprocessor
     {
         public static float[] ToNchw(
-            OnnxInputFrame frame,
+            CapturedFrame frame,
             DetectorInputSpec inputSpec,
             ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
         {
@@ -26,7 +27,7 @@ namespace OnnxRuntimeInference
             byte[] pixels,
             int width,
             int height,
-            OnnxFramePixelFormat format,
+            FramePixelFormat format,
             bool rowsBottomUp,
             DetectorInputSpec inputSpec,
             ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
@@ -52,7 +53,7 @@ namespace OnnxRuntimeInference
             byte[] pixels,
             int width,
             int height,
-            OnnxFramePixelFormat format,
+            FramePixelFormat format,
             bool rowsBottomUp,
             DetectorInputSpec inputSpec,
             ColorOrder sourceColorOrderOverride,
@@ -107,15 +108,15 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private static int GetChannelCount(OnnxFramePixelFormat format)
+        private static int GetChannelCount(FramePixelFormat format)
         {
             switch (format)
             {
-                case OnnxFramePixelFormat.Rgba32:
-                case OnnxFramePixelFormat.Bgra32:
+                case FramePixelFormat.Rgba32:
+                case FramePixelFormat.Bgra32:
                     return 4;
-                case OnnxFramePixelFormat.Rgb24:
-                case OnnxFramePixelFormat.Bgr24:
+                case FramePixelFormat.Rgb24:
+                case FramePixelFormat.Bgr24:
                     return 3;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported frame format.");
@@ -125,7 +126,7 @@ namespace OnnxRuntimeInference
         private static void ReadRgb(
             byte[] pixels,
             int sourceIndex,
-            OnnxFramePixelFormat format,
+            FramePixelFormat format,
             ColorOrder sourceColorOrderOverride,
             out float r,
             out float g,
@@ -135,8 +136,8 @@ namespace OnnxRuntimeInference
             byte c1 = pixels[sourceIndex + 1];
             byte c2 = pixels[sourceIndex + 2];
 
-            bool sourceIsBgr = format == OnnxFramePixelFormat.Bgr24 ||
-                format == OnnxFramePixelFormat.Bgra32 ||
+            bool sourceIsBgr = format == FramePixelFormat.Bgr24 ||
+                format == FramePixelFormat.Bgra32 ||
                 sourceColorOrderOverride == ColorOrder.Bgr;
 
             if (sourceIsBgr)

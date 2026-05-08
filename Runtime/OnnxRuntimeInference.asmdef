@@ -1,7 +1,9 @@
 {
   "name": "OnnxRuntimeInference",
   "rootNamespace": "OnnxRuntimeInference",
-  "references": [],
+  "references": [
+    "WindowCapture"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

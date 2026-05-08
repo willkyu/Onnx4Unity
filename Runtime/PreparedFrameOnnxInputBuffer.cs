@@ -1,4 +1,5 @@
 using System;
+using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
@@ -6,14 +7,14 @@ namespace OnnxRuntimeInference
     {
         private readonly object syncRoot = new object();
         private readonly DetectorInputSpec inputSpec;
-        private readonly OnnxResizeAlgorithm resizeAlgorithm;
+        private readonly FrameResizeAlgorithm resizeAlgorithm;
         private readonly Slot[] slots;
         private int latestSlotIndex = -1;
         private bool disposed;
 
         public PreparedFrameOnnxInputBuffer(
             DetectorInputSpec inputSpec,
-            OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Nearest)
+            FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Nearest)
         {
             this.inputSpec = inputSpec ?? throw new ArgumentNullException(nameof(inputSpec));
             this.resizeAlgorithm = resizeAlgorithm;
@@ -27,16 +28,9 @@ namespace OnnxRuntimeInference
             };
         }
 
-        public PreparedFrameOnnxInputBuffer(
-            DetectorInputSpec inputSpec,
-            Enum resizeAlgorithm)
-            : this(inputSpec, OnnxResizeAlgorithmUtility.FromEnumName(resizeAlgorithm))
-        {
-        }
-
         public int Width => inputSpec.Width;
         public int Height => inputSpec.Height;
-        public OnnxResizeAlgorithm ResizeAlgorithm => resizeAlgorithm;
+        public FrameResizeAlgorithm ResizeAlgorithm => resizeAlgorithm;
 
         public bool TryAcquireWrite(out WriteLease lease)
         {
@@ -154,17 +148,17 @@ namespace OnnxRuntimeInference
             return false;
         }
 
-        private bool TryPrepareSlot(int slotIndex, OnnxInputFrame sourceFrame)
+        private bool TryPrepareSlot(int slotIndex, CapturedFrame sourceFrame)
         {
             if (sourceFrame == null)
                 throw new ArgumentNullException(nameof(sourceFrame));
-            if (sourceFrame.Format != OnnxFramePixelFormat.Rgba32 || sourceFrame.RowsBottomUp)
+            if (sourceFrame.Format != FramePixelFormat.Rgba32 || sourceFrame.RowsBottomUp)
                 return false;
             if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
                 return false;
 
             Slot slot = slots[slotIndex];
-            if (resizeAlgorithm == OnnxResizeAlgorithm.Nearest)
+            if (resizeAlgorithm == FrameResizeAlgorithm.Nearest)
                 PrepareNearest(sourceFrame, slot);
             else
                 PrepareBilinear(sourceFrame, slot);
@@ -208,7 +202,7 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareNearest(OnnxInputFrame sourceFrame, Slot slot)
+        private void PrepareNearest(CapturedFrame sourceFrame, Slot slot)
         {
             byte[] source = sourceFrame.Pixels;
             byte[] preview = slot.PreviewPixels;
@@ -259,9 +253,9 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareBilinear(OnnxInputFrame sourceFrame, Slot slot)
+        private void PrepareBilinear(CapturedFrame sourceFrame, Slot slot)
         {
-            OnnxRgba32Resizer.ResizeBilinear(
+            Rgba32Resizer.ResizeBilinear(
                 sourceFrame.Pixels,
                 sourceFrame.Width,
                 sourceFrame.Height,
@@ -273,7 +267,7 @@ namespace OnnxRuntimeInference
                 slot.PreviewPixels,
                 inputSpec.Width,
                 inputSpec.Height,
-                OnnxFramePixelFormat.Rgba32,
+                FramePixelFormat.Rgba32,
                 rowsBottomUp: false,
                 inputSpec,
                 ColorOrder.Rgb,
@@ -322,7 +316,7 @@ namespace OnnxRuntimeInference
                 this.slotIndex = slotIndex;
             }
 
-            public bool TryPrepare(OnnxInputFrame sourceFrame)
+            public bool TryPrepare(CapturedFrame sourceFrame)
             {
                 if (owner == null)
                     throw new ObjectDisposedException(nameof(WriteLease));
@@ -362,13 +356,13 @@ namespace OnnxRuntimeInference
             public byte[] PreviewPixels => Slot.PreviewPixels;
             public float[] Tensor => Slot.Tensor;
 
-            public OnnxInputFrame CreatePreviewInputFrame()
+            public CapturedFrame CreatePreviewFrame()
             {
-                return new OnnxInputFrame(
+                return new CapturedFrame(
                     PreviewPixels,
                     Width,
                     Height,
-                    OnnxFramePixelFormat.Rgba32,
+                    FramePixelFormat.Rgba32,
                     rowsBottomUp: false,
                     FrameId,
                     TimestampUtc);

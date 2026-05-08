@@ -2,7 +2,8 @@
   "name": "OnnxRuntimeInference.Tests",
   "rootNamespace": "OnnxRuntimeInference.Tests",
   "references": [
-    "OnnxRuntimeInference"
+    "OnnxRuntimeInference",
+    "WindowCapture"
   ],
   "includePlatforms": [
     "Editor"

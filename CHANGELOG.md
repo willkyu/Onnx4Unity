@@ -1,12 +1,5 @@
 # Changelog
 
-## 0.1.9 - 2026-05-08
-
-- Split the core ONNX package away from the WindowCapture package dependency.
-- Added `OnnxInputFrame`, `OnnxFramePixelFormat`, and `OnnxResizeAlgorithm` for standalone CPU-frame inference.
-- Added an optional `WindowCaptureBridge` assembly so `CapturedFrame` usage still works when Window Capture For Unity is installed.
-- Updated Chinese and English README/API documentation for standalone and bridge usage.
-
 ## 0.1.8 - 2026-05-07
 
 - Added `PreparedFrameOnnxInputBuffer` for the original project style worker-prepared model input path.
