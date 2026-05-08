@@ -1,10 +1,5 @@
 # Changelog
 
-## 0.1.10 - 2026-05-08
-
-- Removed per-frame `OnnxInputFrame` wrapper allocation from the WindowCapture bridge hot path.
-- Kept the public standalone and `CapturedFrame` bridge APIs unchanged.
-
 ## 0.1.9 - 2026-05-08
 
 - Split the core ONNX package away from the WindowCapture package dependency.

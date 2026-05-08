@@ -158,49 +158,23 @@ namespace OnnxRuntimeInference
         {
             if (sourceFrame == null)
                 throw new ArgumentNullException(nameof(sourceFrame));
-
-            return TryPrepareSlot(
-                slotIndex,
-                sourceFrame.Pixels,
-                sourceFrame.Width,
-                sourceFrame.Height,
-                sourceFrame.Format,
-                sourceFrame.RowsBottomUp,
-                sourceFrame.FrameId,
-                sourceFrame.TimestampUtc);
-        }
-
-        private bool TryPrepareSlot(
-            int slotIndex,
-            byte[] pixels,
-            int width,
-            int height,
-            OnnxFramePixelFormat format,
-            bool rowsBottomUp,
-            long frameId,
-            DateTime timestampUtc)
-        {
-            if (pixels == null)
-                throw new ArgumentNullException(nameof(pixels));
-            if (format != OnnxFramePixelFormat.Rgba32 || rowsBottomUp)
+            if (sourceFrame.Format != OnnxFramePixelFormat.Rgba32 || sourceFrame.RowsBottomUp)
                 return false;
-            if (width <= 0 || height <= 0)
+            if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
                 return false;
 
             Slot slot = slots[slotIndex];
             if (resizeAlgorithm == OnnxResizeAlgorithm.Nearest)
-                PrepareNearest(pixels, width, height, slot);
+                PrepareNearest(sourceFrame, slot);
             else
-                PrepareBilinear(pixels, width, height, slot);
+                PrepareBilinear(sourceFrame, slot);
 
             lock (syncRoot)
             {
-                slot.OriginalWidth = width;
-                slot.OriginalHeight = height;
-                slot.FrameId = frameId;
-                slot.TimestampUtc = timestampUtc.Kind == DateTimeKind.Utc
-                    ? timestampUtc
-                    : timestampUtc.ToUniversalTime();
+                slot.OriginalWidth = sourceFrame.Width;
+                slot.OriginalHeight = sourceFrame.Height;
+                slot.FrameId = sourceFrame.FrameId;
+                slot.TimestampUtc = sourceFrame.TimestampUtc;
 
                 if (latestSlotIndex >= 0 && latestSlotIndex != slotIndex && slots[latestSlotIndex].State == SlotState.Ready)
                     slots[latestSlotIndex].State = SlotState.Free;
@@ -234,10 +208,13 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareNearest(byte[] source, int srcWidth, int srcHeight, Slot slot)
+        private void PrepareNearest(OnnxInputFrame sourceFrame, Slot slot)
         {
+            byte[] source = sourceFrame.Pixels;
             byte[] preview = slot.PreviewPixels;
             float[] tensor = slot.Tensor;
+            int srcWidth = sourceFrame.Width;
+            int srcHeight = sourceFrame.Height;
             int dstWidth = inputSpec.Width;
             int dstHeight = inputSpec.Height;
             int pixelCount = checked(dstWidth * dstHeight);
@@ -282,12 +259,12 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private void PrepareBilinear(byte[] pixels, int width, int height, Slot slot)
+        private void PrepareBilinear(OnnxInputFrame sourceFrame, Slot slot)
         {
             OnnxRgba32Resizer.ResizeBilinear(
-                pixels,
-                width,
-                height,
+                sourceFrame.Pixels,
+                sourceFrame.Width,
+                sourceFrame.Height,
                 slot.PreviewPixels,
                 inputSpec.Width,
                 inputSpec.Height);
@@ -351,41 +328,10 @@ namespace OnnxRuntimeInference
                     throw new ObjectDisposedException(nameof(WriteLease));
 
                 bool prepared = owner.TryPrepareSlot(slotIndex, sourceFrame);
-                MarkPublishedIfPrepared(prepared);
-
-                return prepared;
-            }
-
-            internal bool TryPrepare(
-                byte[] pixels,
-                int width,
-                int height,
-                OnnxFramePixelFormat format,
-                bool rowsBottomUp,
-                long frameId,
-                DateTime timestampUtc)
-            {
-                if (owner == null)
-                    throw new ObjectDisposedException(nameof(WriteLease));
-
-                bool prepared = owner.TryPrepareSlot(
-                    slotIndex,
-                    pixels,
-                    width,
-                    height,
-                    format,
-                    rowsBottomUp,
-                    frameId,
-                    timestampUtc);
-                MarkPublishedIfPrepared(prepared);
-
-                return prepared;
-            }
-
-            private void MarkPublishedIfPrepared(bool prepared)
-            {
                 if (prepared)
                     owner = null;
+
+                return prepared;
             }
 
             public void Dispose()

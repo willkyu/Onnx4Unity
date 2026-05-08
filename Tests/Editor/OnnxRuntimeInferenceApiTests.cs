@@ -277,7 +277,6 @@ namespace OnnxRuntimeInference.Tests
                 "OnnxInputFrame.cs",
                 "OnnxResizeAlgorithm.cs",
                 "OnnxRgba32Resizer.cs",
-                "OnnxRuntimeInferenceAssemblyInfo.cs",
                 "OnnxRuntimeDetectorSession.cs",
                 "OrtNativeLibraryPreloader.cs",
                 "PreparedFrameOnnxInputBuffer.cs",
@@ -338,9 +337,6 @@ namespace OnnxRuntimeInference.Tests
             StringAssert.Contains("TryPrepare(this PreparedFrameOnnxInputBuffer.WriteLease lease, CapturedFrame sourceFrame)", bridgeSource);
             StringAssert.Contains("CreatePreviewFrame(this PreparedFrameOnnxInputBuffer.ReadLease lease)", bridgeSource);
             StringAssert.Contains("ToOnnxInputFrame", bridgeSource);
-            StringAssert.Contains("sourceFrame.Pixels", bridgeSource);
-            StringAssert.DoesNotContain("sourceFrame.ToOnnxInputFrame()", bridgeSource);
-            StringAssert.DoesNotContain("using OnnxInputFrame inputFrame", bridgeSource);
         }
 
         [Test]
