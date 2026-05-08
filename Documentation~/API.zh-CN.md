@@ -5,15 +5,14 @@
 ## 基本约定
 
 - 输入 tensor 为 NCHW `float[]`，语义是 `[1, 3, height, width]`。
-- 普通路径：`FrameOnnxRunner.TryBeginRun(CapturedFrame)` 在 runner 内部执行 CPU resize 和 CPU tensor 转换。
-- 快路径：`PreparedFrameOnnxInputBuffer` 让捕获线程预处理原始帧，主线程通过 `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)` 直接推理已经写好的 tensor。
+- 核心包不依赖 WindowCapture。普通路径使用 `OnnxInputFrame`：`FrameOnnxRunner.TryBeginRun(OnnxInputFrame)`。
+- 快路径使用 `PreparedFrameOnnxInputBuffer` 做捕获线程预处理，主线程通过 `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)` 直接推理已经写好的 tensor。
+- 安装 `com.willkyu.window-capture` 后，桥接程序集会额外提供 `CapturedFrame` 扩展方法。
 - DirectML 仅在 Windows Editor/Player 下可用；初始化失败会回退 CPU，并写入 `InitializationWarning`。
 
-## 主要类
+## 枚举
 
 ### `DetectorRuntimeKind`
-
-选择 ONNX Runtime 后端。
 
 | 值 | 说明 |
 | --- | --- |
@@ -22,8 +21,6 @@
 
 ### `ColorOrder`
 
-颜色通道顺序。
-
 | 值 | 说明 |
 | --- | --- |
 | `Rgb` | R、G、B 顺序。 |
@@ -31,16 +28,52 @@
 
 ### `InferencePreprocessBackend`
 
-一次推理实际使用的预处理链路。
-
 | 值 | 说明 |
 | --- | --- |
 | `CpuResizeCpuTensor` | runner 内部执行 CPU resize，并在 CPU 写 NCHW tensor。 |
-| `PreparedCpuTensor` | 捕获线程已经准备好模型输入，runner 只执行 ONNX Runtime 与 decode。 |
+| `PreparedCpuTensor` | 模型输入已经准备好，runner 只执行 ONNX Runtime 与 decode。 |
+
+### `OnnxFramePixelFormat`
+
+| 值 | 说明 |
+| --- | --- |
+| `Rgba32` | 每像素 4 字节，R、G、B、A 顺序。 |
+| `Bgra32` | 每像素 4 字节，B、G、R、A 顺序。 |
+| `Rgb24` | 每像素 3 字节，R、G、B 顺序。 |
+| `Bgr24` | 每像素 3 字节，B、G、R 顺序。 |
+
+`OnnxFramePixelFormatUtility.GetBytesPerPixel(format)` 返回每像素字节数；`GetByteCount(width, height, format)` 返回整帧字节数。
+
+### `OnnxResizeAlgorithm`
+
+| 值 | 说明 |
+| --- | --- |
+| `Nearest` | 最近邻采样，速度快，适合识别输入。 |
+| `Bilinear` | 双线性采样，画面更平滑。 |
+
+## 数据模型
+
+### `OnnxInputFrame`
+
+ONNX 包自己的 CPU 输入帧类型。
+
+```csharp
+new OnnxInputFrame(
+    byte[] pixels,
+    int width,
+    int height,
+    OnnxFramePixelFormat format,
+    bool rowsBottomUp,
+    long frameId,
+    DateTime timestampUtc,
+    Action<byte[]> releasePixels = null)
+```
+
+参数：`pixels` 是原始像素；`width`、`height` 是图像尺寸；`format` 是像素格式；`rowsBottomUp=true` 表示第一行数据是图像底行；`frameId` 和 `timestampUtc` 是调用方提供的帧信息；`releasePixels` 可选，用于释放外部缓冲。
+
+属性：`Pixels`、`Width`、`Height`、`Format`、`RowsBottomUp`、`FrameId`、`TimestampUtc`。
 
 ### `DetectorInputSpec`
-
-描述模型输入。
 
 ```csharp
 new DetectorInputSpec(
@@ -56,8 +89,6 @@ new DetectorInputSpec(
 
 ### `DetectorClass`
 
-检测类别配置。
-
 ```csharp
 new DetectorClass(int id, string label, float threshold)
 ```
@@ -67,8 +98,6 @@ new DetectorClass(int id, string label, float threshold)
 属性：`Id`、`Label`、`Threshold`。
 
 ### `DetectorModelProfile`
-
-描述一个检测模型配置。
 
 ```csharp
 new DetectorModelProfile(
@@ -85,8 +114,6 @@ new DetectorModelProfile(
 
 ### `DetectionResult`
 
-单个检测框。
-
 ```csharp
 new DetectionResult(
     int classId,
@@ -102,8 +129,6 @@ new DetectionResult(
 
 ### `DetectionBatch`
 
-一次推理的检测结果集合。
-
 ```csharp
 new DetectionBatch(
     IReadOnlyList<DetectionResult> detections,
@@ -112,9 +137,9 @@ new DetectionBatch(
 
 属性：`Detections` 返回检测框列表；`ClassScores` 返回每个类别的最高置信度。
 
-### `DetectorJsonConfigLoader`
+## 配置与会话
 
-读取 `detectors.json`。
+### `DetectorJsonConfigLoader`
 
 ```csharp
 DetectorModelProfile LoadFirst(string json)
@@ -129,8 +154,6 @@ IReadOnlyList<DetectorModelProfile> LoadAllFromFile(string path)
 
 ### `IOnnxDetectorSession`
 
-推理会话抽象。
-
 ```csharp
 float[] Run(float[] nchwInput, int width, int height)
 ```
@@ -140,8 +163,6 @@ float[] Run(float[] nchwInput, int width, int height)
 返回值：ONNX Runtime 输出 tensor 的展平 `float[]`。具体布局由模型决定。
 
 ### `OnnxRuntimeDetectorSession`
-
-基于 `Microsoft.ML.OnnxRuntime.InferenceSession` 的会话实现。
 
 ```csharp
 new OnnxRuntimeDetectorSession(
@@ -157,18 +178,18 @@ new OnnxRuntimeDetectorSession(
 
 `Run(...)` 参数和返回值同 `IOnnxDetectorSession.Run(...)`。
 
-### `TensorPreprocessor`
+## 预处理
 
-把捕获帧或像素数组写为 NCHW tensor。
+### `TensorPreprocessor`
 
 ```csharp
 float[] ToNchw(
-    CapturedFrame frame,
+    OnnxInputFrame frame,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
 ```
 
-参数：`frame` 是捕获帧；`inputSpec` 是模型输入规格；`sourceColorOrderOverride` 可在 RGB/RGBA 源数据上强制按 BGR 解读。
+参数：`frame` 是 ONNX 输入帧；`inputSpec` 是模型输入规格；`sourceColorOrderOverride` 可在 RGB/RGBA 源数据上强制按 BGR 解读。
 
 返回值：新的 NCHW `float[]`。
 
@@ -177,7 +198,7 @@ float[] ToNchw(
     byte[] pixels,
     int width,
     int height,
-    FramePixelFormat format,
+    OnnxFramePixelFormat format,
     bool rowsBottomUp,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
@@ -192,7 +213,7 @@ void WriteNchw(
     byte[] pixels,
     int width,
     int height,
-    FramePixelFormat format,
+    OnnxFramePixelFormat format,
     bool rowsBottomUp,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride,
@@ -210,10 +231,10 @@ void WriteNchw(
 ```csharp
 new PreparedFrameOnnxInputBuffer(
     DetectorInputSpec inputSpec,
-    FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Nearest)
+    OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Nearest)
 ```
 
-参数：`inputSpec` 是模型输入规格；`resizeAlgorithm` 是从原始帧缩放到模型输入尺寸的采样算法，默认 `Nearest`，与原项目默认一致。
+参数：`inputSpec` 是模型输入规格；`resizeAlgorithm` 是从原始帧缩放到模型输入尺寸的采样算法，默认 `Nearest`。
 
 属性：`Width`、`Height` 返回模型输入尺寸；`ResizeAlgorithm` 返回构造时指定的采样算法。
 
@@ -248,9 +269,88 @@ bool TryCopyLatestPreviewPixels(
 
 返回值：`true` 表示已复制 latest preview；`false` 表示暂无可复制帧。
 
-`WriteLease.TryPrepare(CapturedFrame sourceFrame)`：参数 `sourceFrame` 必须是 top-down `Rgba32`；返回 `true` 表示已完成 resize、preview 和 tensor 写入并发布。
+`WriteLease.TryPrepare(OnnxInputFrame sourceFrame)`：参数 `sourceFrame` 必须是 top-down `Rgba32`；返回 `true` 表示已完成 resize、preview 和 tensor 写入并发布。
 
-`ReadLease` 属性：`Width`、`Height` 是模型输入尺寸；`OriginalWidth`、`OriginalHeight` 是捕获原始尺寸；`FrameId`、`TimestampUtc` 是原始帧信息；`PreviewPixels` 是模型尺寸 RGBA32 preview；`Tensor` 是 NCHW `float[]`。`CreatePreviewFrame()` 返回包装 preview 的 `CapturedFrame`，用于少量调试或适配旧接口。
+`ReadLease` 属性：`Width`、`Height` 是模型输入尺寸；`OriginalWidth`、`OriginalHeight` 是原始尺寸；`FrameId`、`TimestampUtc` 是帧信息；`PreviewPixels` 是模型尺寸 RGBA32 preview；`Tensor` 是 NCHW `float[]`。`CreatePreviewInputFrame()` 返回包装 preview 的 `OnnxInputFrame`。
+
+## 推理与解码
+
+### `FrameOnnxRunnerOptions`
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `ResizeAlgorithm` | `OnnxResizeAlgorithm` | `Bilinear` | `TryBeginRun(OnnxInputFrame)` 路径的 CPU resize 采样算法。 |
+| `ApplyClassNms` | `bool` | `false` | 是否按类别执行 NMS。 |
+| `NmsIouThreshold` | `float` | `0.5` | NMS IoU 阈值。 |
+| `DisposeSession` | `bool` | `false` | 释放 runner 时是否一并释放传入 session。 |
+
+### `FrameOnnxRunner`
+
+非阻塞帧推理入口。每次只运行一帧；上一帧仍在推理时，新的 `TryBeginRun` 返回 `false`。
+
+```csharp
+new FrameOnnxRunner(
+    IOnnxDetectorSession session,
+    DetectorModelProfile profile,
+    OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Bilinear,
+    bool applyClassNms = false,
+    float nmsIouThreshold = 0.5f,
+    bool disposeSession = false)
+```
+
+```csharp
+new FrameOnnxRunner(
+    IOnnxDetectorSession session,
+    DetectorModelProfile profile,
+    FrameOnnxRunnerOptions options)
+```
+
+参数：`session` 是推理会话；`profile` 是模型配置；`resizeAlgorithm` 或 `options.ResizeAlgorithm` 决定 CPU resize 算法；`applyClassNms` 和 `nmsIouThreshold` 控制 decode 后 NMS；`disposeSession=true` 时 runner 释放时会释放 session。
+
+```csharp
+bool TryBeginRun(OnnxInputFrame sourceFrame)
+```
+
+参数：`sourceFrame` 是当前输入帧，当前 runner 要求 `OnnxFramePixelFormat.Rgba32`。如果 `sourceFrame.RowsBottomUp=true`，runner 会在内部转成 top-down 后再 resize。
+
+返回值：`true` 表示本次推理已启动；`false` 表示上一帧仍在运行。
+
+```csharp
+bool TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease preparedInput)
+```
+
+参数：`preparedInput` 是 `PreparedFrameOnnxInputBuffer.TryAcquireLatest` 返回的 latest 输入 lease。返回 `true` 后 runner 会持有该 lease 直到推理结束；返回 `false` 时调用方仍负责释放。
+
+返回值：`true` 表示本次推理已启动；`false` 表示上一帧仍在运行。
+
+```csharp
+bool TryGetResult(out FrameOnnxInferenceResult result)
+```
+
+参数：`result` 接收完成结果。
+
+返回值：`true` 表示取到一条结果；`false` 表示尚无完成结果。
+
+属性：`IsRunning` 表示是否正在推理；`Profile` 返回构造时传入的模型配置。
+
+### `FrameOnnxInferenceResult`
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `Batch` | `DetectionBatch` | 解码后的检测结果。 |
+| `RawOutput` | `float[]` | ONNX Runtime 原始输出。 |
+| `OriginalWidth` / `OriginalHeight` | `int` | 原始帧尺寸。 |
+| `InputWidth` / `InputHeight` | `int` | 模型输入尺寸。 |
+| `ResizeDuration` | `TimeSpan` | CPU resize 耗时；prepared 路径为 0。 |
+| `TensorDuration` | `TimeSpan` | RGBA 到 NCHW 耗时；prepared 路径为 0。 |
+| `InferenceDuration` | `TimeSpan` | ONNX Runtime `Run` 耗时。 |
+| `DecodeDuration` | `TimeSpan` | YOLO decode 耗时。 |
+| `PreprocessDuration` | `TimeSpan` | `ResizeDuration + TensorDuration`。 |
+| `TotalActiveDuration` | `TimeSpan` | resize、tensor、ORT、decode 总耗时。 |
+| `ActiveFps` | `double` | `1 / TotalActiveDuration`，不包含限频等待。 |
+| `PreprocessBackend` | `InferencePreprocessBackend` | 实际预处理链路。 |
+| `Succeeded` | `bool` | 是否成功。 |
+| `ErrorMessage` | `string` | 失败原因；成功时为空。 |
 
 ### `YoloEnd2EndDecoder`
 
@@ -281,86 +381,47 @@ DetectionBatch Decode(
 
 返回值：`DetectionBatch`，包含过滤后的检测框和各类别最高分。
 
-### `FrameOnnxRunnerOptions`
+## WindowCapture 桥接扩展
 
-`FrameOnnxRunner` 配置。
+桥接程序集位于 `Runtime/WindowCaptureBridge`。它只在安装 `com.willkyu.window-capture` 时启用，不会让核心 `OnnxRuntimeInference` asmdef 依赖 WindowCapture。
 
-| 属性 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `ResizeAlgorithm` | `FrameResizeAlgorithm` | `Bilinear` | `TryBeginRun(CapturedFrame)` 路径的 CPU resize 采样算法。 |
-| `ApplyClassNms` | `bool` | `false` | 是否按类别执行 NMS。 |
-| `NmsIouThreshold` | `float` | `0.5` | NMS IoU 阈值。 |
-| `DisposeSession` | `bool` | `false` | 释放 runner 时是否一并释放传入 session。 |
+### `WindowCaptureOnnxExtensions`
 
-### `FrameOnnxRunner`
-
-非阻塞帧推理入口。每次只运行一帧；上一帧仍在推理时，新的 `TryBeginRun` 返回 `false`。
+常用调用形态是 `TryBeginRun(CapturedFrame sourceFrame)`、`TryPrepare(CapturedFrame sourceFrame)` 和 `CreatePreviewFrame()`；实现上它们是桥接程序集里的扩展方法。
 
 ```csharp
-new FrameOnnxRunner(
-    IOnnxDetectorSession session,
-    DetectorModelProfile profile,
-    FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Bilinear,
-    bool applyClassNms = false,
-    float nmsIouThreshold = 0.5f,
-    bool disposeSession = false)
+OnnxInputFrame ToOnnxInputFrame(this CapturedFrame frame)
 ```
+
+参数：`frame` 是 WindowCapture 的 `CapturedFrame`。
+
+返回值：引用同一像素数组的 `OnnxInputFrame` 包装。
 
 ```csharp
-new FrameOnnxRunner(
-    IOnnxDetectorSession session,
-    DetectorModelProfile profile,
-    FrameOnnxRunnerOptions options)
+bool TryBeginRun(this FrameOnnxRunner runner, CapturedFrame sourceFrame)
 ```
 
-参数：`session` 是推理会话；`profile` 是模型配置；`options` 可为 `null`，此时使用默认配置。
+参数：`runner` 是 ONNX runner；`sourceFrame` 是捕获帧。
+
+返回值：同 `FrameOnnxRunner.TryBeginRun(OnnxInputFrame)`。
 
 ```csharp
-bool TryBeginRun(CapturedFrame sourceFrame)
+bool TryPrepare(this PreparedFrameOnnxInputBuffer.WriteLease lease, CapturedFrame sourceFrame)
 ```
 
-参数：`sourceFrame` 是当前捕获帧，当前 runner 要求 `FramePixelFormat.Rgba32`。如果 `sourceFrame.RowsBottomUp=true`，runner 会在内部转成 top-down 后再 resize。
+参数：`lease` 是写入租约；`sourceFrame` 必须是 top-down `Rgba32`。
 
-返回值：`true` 表示本次推理已启动；`false` 表示上一帧仍在运行。
+返回值：同 `WriteLease.TryPrepare(OnnxInputFrame)`。
 
 ```csharp
-bool TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease preparedInput)
+CapturedFrame CreatePreviewFrame(this PreparedFrameOnnxInputBuffer.ReadLease lease)
 ```
 
-参数：`preparedInput` 是 `PreparedFrameOnnxInputBuffer.TryAcquireLatest` 返回的 latest 输入 lease。返回 `true` 后 runner 会持有该 lease 直到推理结束；返回 `false` 时调用方仍负责释放。
+参数：`lease` 是 latest 读取租约。
 
-返回值：`true` 表示本次推理已启动；`false` 表示上一帧仍在运行。
+返回值：包装 prepared preview 的 `CapturedFrame`，用于调试或兼容旧接口。
 
-```csharp
-bool TryGetResult(out FrameOnnxInferenceResult result)
-```
-
-参数：`result` 接收完成结果。
-
-返回值：`true` 表示取到一条结果；`false` 表示尚无完成结果。
-
-属性：`IsRunning` 表示是否正在推理；`Profile` 返回构造时传入的模型配置。
-
-### `FrameOnnxInferenceResult`
-
-`FrameOnnxRunner` 的完成结果。
-
-| 属性 | 类型 | 说明 |
-| --- | --- | --- |
-| `Batch` | `DetectionBatch` | 解码后的检测结果。 |
-| `RawOutput` | `float[]` | ONNX Runtime 原始输出。 |
-| `OriginalWidth` / `OriginalHeight` | `int` | 原始帧尺寸。 |
-| `InputWidth` / `InputHeight` | `int` | 模型输入尺寸。 |
-| `ResizeDuration` | `TimeSpan` | CPU resize 耗时；prepared 路径为 0。 |
-| `TensorDuration` | `TimeSpan` | RGBA 到 NCHW 耗时；prepared 路径为 0。 |
-| `InferenceDuration` | `TimeSpan` | ONNX Runtime `Run` 耗时。 |
-| `DecodeDuration` | `TimeSpan` | YOLO decode 耗时。 |
-| `PreprocessDuration` | `TimeSpan` | `ResizeDuration + TensorDuration`。 |
-| `TotalActiveDuration` | `TimeSpan` | resize、tensor、ORT、decode 总耗时。 |
-| `ActiveFps` | `double` | `1 / TotalActiveDuration`，不包含限频等待。 |
-| `PreprocessBackend` | `InferencePreprocessBackend` | 实际预处理链路。 |
-| `Succeeded` | `bool` | 是否成功。 |
-| `ErrorMessage` | `string` | 失败原因；成功时为空。 |
+## 原生库预加载
 
 ### `OrtNativeLibraryPreloader`
 
@@ -372,4 +433,4 @@ void EnsureLoaded()
 
 返回值：无。非 Windows 平台无操作；Windows 下找不到或加载失败时抛出异常。
 
-属性：`LoadedPath` 返回已加载的 `onnxruntime.dll` 路径；`LoadWarning` 返回预加载阶段的警告文本。
+属性：`LoadedPath` 返回已加载的 `onnxruntime.dll` 路径；`DirectMlLoadedPath` 返回已加载的 `DirectML.dll` 路径；`LoadWarning` 返回预加载阶段的警告文本。

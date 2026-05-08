@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using WindowCapture;
 
 namespace OnnxRuntimeInference
 {
@@ -22,7 +21,7 @@ namespace OnnxRuntimeInference
         public FrameOnnxRunner(
             IOnnxDetectorSession session,
             DetectorModelProfile profile,
-            FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Bilinear,
+            OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Bilinear,
             bool applyClassNms = false,
             float nmsIouThreshold = 0.5f,
             bool disposeSession = false)
@@ -36,6 +35,23 @@ namespace OnnxRuntimeInference
                     NmsIouThreshold = nmsIouThreshold,
                     DisposeSession = disposeSession
                 })
+        {
+        }
+
+        public FrameOnnxRunner(
+            IOnnxDetectorSession session,
+            DetectorModelProfile profile,
+            Enum resizeAlgorithm,
+            bool applyClassNms = false,
+            float nmsIouThreshold = 0.5f,
+            bool disposeSession = false)
+            : this(
+                session,
+                profile,
+                OnnxResizeAlgorithmUtility.FromEnumName(resizeAlgorithm),
+                applyClassNms,
+                nmsIouThreshold,
+                disposeSession)
         {
         }
 
@@ -60,12 +76,12 @@ namespace OnnxRuntimeInference
 
         public DetectorModelProfile Profile => profile;
 
-        public bool TryBeginRun(CapturedFrame sourceFrame)
+        public bool TryBeginRun(OnnxInputFrame sourceFrame)
         {
             if (sourceFrame == null)
                 throw new ArgumentNullException(nameof(sourceFrame));
             if (sourceFrame.Width <= 0 || sourceFrame.Height <= 0)
-                throw new ArgumentException("Captured frame size must be positive.", nameof(sourceFrame));
+                throw new ArgumentException("Input frame size must be positive.", nameof(sourceFrame));
             ThrowIfDisposed();
 
             return TryBeginCpuRun(sourceFrame);
@@ -126,17 +142,17 @@ namespace OnnxRuntimeInference
             }
         }
 
-        private bool TryBeginCpuRun(CapturedFrame sourceFrame)
+        private bool TryBeginCpuRun(OnnxInputFrame sourceFrame)
         {
-            if (sourceFrame.Format != FramePixelFormat.Rgba32)
-                throw new InvalidOperationException("CPU resize currently requires RGBA32 captured frames.");
+            if (sourceFrame.Format != OnnxFramePixelFormat.Rgba32)
+                throw new InvalidOperationException("CPU resize currently requires RGBA32 input frames.");
 
             if (!TryEnterRun())
                 return false;
 
             try
             {
-                int sourceByteCount = FramePixelFormatUtility.GetByteCount(sourceFrame.Width, sourceFrame.Height, sourceFrame.Format);
+                int sourceByteCount = OnnxFramePixelFormatUtility.GetByteCount(sourceFrame.Width, sourceFrame.Height, sourceFrame.Format);
                 var sourcePixels = new byte[sourceByteCount];
                 Buffer.BlockCopy(sourceFrame.Pixels, 0, sourcePixels, 0, sourceByteCount);
 
@@ -165,9 +181,9 @@ namespace OnnxRuntimeInference
                     EnsureTensorBuffer();
 
                     var resizeWatch = Stopwatch.StartNew();
-                    if (options.ResizeAlgorithm == FrameResizeAlgorithm.Nearest)
+                    if (options.ResizeAlgorithm == OnnxResizeAlgorithm.Nearest)
                     {
-                        Rgba32Resizer.ResizeNearest(
+                        OnnxRgba32Resizer.ResizeNearest(
                             sourcePixels,
                             sourceWidth,
                             sourceHeight,
@@ -177,7 +193,7 @@ namespace OnnxRuntimeInference
                     }
                     else
                     {
-                        Rgba32Resizer.ResizeBilinear(
+                        OnnxRgba32Resizer.ResizeBilinear(
                             sourcePixels,
                             sourceWidth,
                             sourceHeight,
@@ -193,7 +209,7 @@ namespace OnnxRuntimeInference
                         cpuResizeBuffer,
                         inputWidth,
                         inputHeight,
-                        FramePixelFormat.Rgba32,
+                        OnnxFramePixelFormat.Rgba32,
                         rowsBottomUp: false,
                         profile.InputSpec,
                         ColorOrder.Rgb,

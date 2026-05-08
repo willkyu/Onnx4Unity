@@ -5,15 +5,14 @@ Namespace: `OnnxRuntimeInference`.
 ## Conventions
 
 - Input tensors are NCHW `float[]` arrays with `[1, 3, height, width]` semantics.
-- Normal path: `FrameOnnxRunner.TryBeginRun(CapturedFrame)` performs CPU resize and CPU tensor conversion inside the runner.
-- Fast path: `PreparedFrameOnnxInputBuffer` lets a capture thread preprocess the original frame, then the main thread calls `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)` to run inference directly from the prepared tensor.
+- The core package does not depend on WindowCapture. The normal path uses `OnnxInputFrame`: `FrameOnnxRunner.TryBeginRun(OnnxInputFrame)`.
+- The fast path uses `PreparedFrameOnnxInputBuffer` for capture-thread preprocessing, then the main thread calls `TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease)` to run inference directly from the prepared tensor.
+- When `com.willkyu.window-capture` is installed, the bridge assembly additionally provides `CapturedFrame` extension methods.
 - DirectML is available only in Windows Editor/Player. Initialization failure falls back to CPU and records `InitializationWarning`.
 
-## Main Types
+## Enums
 
 ### `DetectorRuntimeKind`
-
-Selects the ONNX Runtime backend.
 
 | Value | Description |
 | --- | --- |
@@ -22,8 +21,6 @@ Selects the ONNX Runtime backend.
 
 ### `ColorOrder`
 
-Color channel order.
-
 | Value | Description |
 | --- | --- |
 | `Rgb` | R, G, B order. |
@@ -31,16 +28,52 @@ Color channel order.
 
 ### `InferencePreprocessBackend`
 
-The preprocessing path used by an inference result.
-
 | Value | Description |
 | --- | --- |
 | `CpuResizeCpuTensor` | The runner performed CPU resize and wrote NCHW tensor on CPU. |
-| `PreparedCpuTensor` | Model input was already prepared by the capture thread; the runner only executed ONNX Runtime and decode. |
+| `PreparedCpuTensor` | Model input was already prepared; the runner only executed ONNX Runtime and decode. |
+
+### `OnnxFramePixelFormat`
+
+| Value | Description |
+| --- | --- |
+| `Rgba32` | 4 bytes per pixel, R, G, B, A order. |
+| `Bgra32` | 4 bytes per pixel, B, G, R, A order. |
+| `Rgb24` | 3 bytes per pixel, R, G, B order. |
+| `Bgr24` | 3 bytes per pixel, B, G, R order. |
+
+`OnnxFramePixelFormatUtility.GetBytesPerPixel(format)` returns bytes per pixel. `GetByteCount(width, height, format)` returns the full frame byte count.
+
+### `OnnxResizeAlgorithm`
+
+| Value | Description |
+| --- | --- |
+| `Nearest` | Nearest-neighbor sampling. Fast and suitable for recognition input. |
+| `Bilinear` | Bilinear sampling. Smoother visual output. |
+
+## Data Models
+
+### `OnnxInputFrame`
+
+The ONNX package's own CPU input frame type.
+
+```csharp
+new OnnxInputFrame(
+    byte[] pixels,
+    int width,
+    int height,
+    OnnxFramePixelFormat format,
+    bool rowsBottomUp,
+    long frameId,
+    DateTime timestampUtc,
+    Action<byte[]> releasePixels = null)
+```
+
+Parameters: `pixels` is raw pixel data; `width` and `height` are image dimensions; `format` is pixel format; `rowsBottomUp=true` means the first data row is the image bottom row; `frameId` and `timestampUtc` are caller-provided frame metadata; `releasePixels` is optional external-buffer cleanup.
+
+Properties: `Pixels`, `Width`, `Height`, `Format`, `RowsBottomUp`, `FrameId`, `TimestampUtc`.
 
 ### `DetectorInputSpec`
-
-Describes model input.
 
 ```csharp
 new DetectorInputSpec(
@@ -56,8 +89,6 @@ Properties: `Width`, `Height`, `TensorColorOrder`, `NormalizeToUnitRange`.
 
 ### `DetectorClass`
 
-Detection class configuration.
-
 ```csharp
 new DetectorClass(int id, string label, float threshold)
 ```
@@ -67,8 +98,6 @@ Parameters: `id` is class id; `label` is display name; `threshold` is the confid
 Properties: `Id`, `Label`, `Threshold`.
 
 ### `DetectorModelProfile`
-
-Describes one detector model configuration.
 
 ```csharp
 new DetectorModelProfile(
@@ -85,8 +114,6 @@ Properties: `DetectorId`, `DisplayName`, `OnnxModelName`, `InputSpec`, `Classes`
 
 ### `DetectionResult`
 
-One detection box.
-
 ```csharp
 new DetectionResult(
     int classId,
@@ -102,8 +129,6 @@ Properties match constructor parameters: `ClassId`, `Label`, `Confidence`, `X1`,
 
 ### `DetectionBatch`
 
-A batch of detection results from one inference run.
-
 ```csharp
 new DetectionBatch(
     IReadOnlyList<DetectionResult> detections,
@@ -112,9 +137,9 @@ new DetectionBatch(
 
 Properties: `Detections` returns detection boxes; `ClassScores` returns the highest confidence for each class label.
 
-### `DetectorJsonConfigLoader`
+## Configuration And Sessions
 
-Reads `detectors.json`.
+### `DetectorJsonConfigLoader`
 
 ```csharp
 DetectorModelProfile LoadFirst(string json)
@@ -129,8 +154,6 @@ Return value: `LoadFirst...` returns the first model profile; `LoadAll...` retur
 
 ### `IOnnxDetectorSession`
 
-Inference session abstraction.
-
 ```csharp
 float[] Run(float[] nchwInput, int width, int height)
 ```
@@ -140,8 +163,6 @@ Parameters: `nchwInput` is a flattened `[1,3,height,width]` array; `width` and `
 Return value: flattened ONNX Runtime output tensor. Layout depends on the model.
 
 ### `OnnxRuntimeDetectorSession`
-
-Session implementation based on `Microsoft.ML.OnnxRuntime.InferenceSession`.
 
 ```csharp
 new OnnxRuntimeDetectorSession(
@@ -157,18 +178,18 @@ Properties: `RequestedRuntimeKind`, `ActualRuntimeKind`, `InitializationWarning`
 
 `Run(...)` parameters and return value match `IOnnxDetectorSession.Run(...)`.
 
-### `TensorPreprocessor`
+## Preprocessing
 
-Writes captured frames or pixel arrays as NCHW tensors.
+### `TensorPreprocessor`
 
 ```csharp
 float[] ToNchw(
-    CapturedFrame frame,
+    OnnxInputFrame frame,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
 ```
 
-Parameters: `frame` is a captured frame; `inputSpec` is model input spec; `sourceColorOrderOverride` can force RGB/RGBA source data to be interpreted as BGR.
+Parameters: `frame` is an ONNX input frame; `inputSpec` is model input spec; `sourceColorOrderOverride` can force RGB/RGBA source data to be interpreted as BGR.
 
 Return value: a new NCHW `float[]`.
 
@@ -177,7 +198,7 @@ float[] ToNchw(
     byte[] pixels,
     int width,
     int height,
-    FramePixelFormat format,
+    OnnxFramePixelFormat format,
     bool rowsBottomUp,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride = ColorOrder.Rgb)
@@ -192,7 +213,7 @@ void WriteNchw(
     byte[] pixels,
     int width,
     int height,
-    FramePixelFormat format,
+    OnnxFramePixelFormat format,
     bool rowsBottomUp,
     DetectorInputSpec inputSpec,
     ColorOrder sourceColorOrderOverride,
@@ -210,10 +231,10 @@ Double-buffered model input. Used by the capture-thread preprocessing fast path:
 ```csharp
 new PreparedFrameOnnxInputBuffer(
     DetectorInputSpec inputSpec,
-    FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Nearest)
+    OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Nearest)
 ```
 
-Parameters: `inputSpec` is model input spec; `resizeAlgorithm` is the sampling algorithm from original frame to model input size and defaults to `Nearest`, matching the original project default.
+Parameters: `inputSpec` is model input spec; `resizeAlgorithm` is the sampling algorithm from original frame to model input size and defaults to `Nearest`.
 
 Properties: `Width` and `Height` return model input size; `ResizeAlgorithm` returns the constructor resize algorithm.
 
@@ -248,9 +269,88 @@ Parameters: `destination` is a caller-provided RGBA32 destination array; other `
 
 Return value: `true` when latest preview was copied; `false` when no frame is available.
 
-`WriteLease.TryPrepare(CapturedFrame sourceFrame)`: `sourceFrame` must be top-down `Rgba32`; returns `true` after resize, preview, and tensor are written and published.
+`WriteLease.TryPrepare(OnnxInputFrame sourceFrame)`: `sourceFrame` must be top-down `Rgba32`; returns `true` after resize, preview, and tensor are written and published.
 
-`ReadLease` properties: `Width` and `Height` are model input size; `OriginalWidth` and `OriginalHeight` are original capture size; `FrameId` and `TimestampUtc` are original frame metadata; `PreviewPixels` is model-sized RGBA32 preview; `Tensor` is NCHW `float[]`. `CreatePreviewFrame()` wraps preview bytes in a `CapturedFrame` for small debugging or legacy adapter cases.
+`ReadLease` properties: `Width` and `Height` are model input size; `OriginalWidth` and `OriginalHeight` are original size; `FrameId` and `TimestampUtc` are frame metadata; `PreviewPixels` is model-sized RGBA32 preview; `Tensor` is NCHW `float[]`. `CreatePreviewInputFrame()` wraps preview bytes in an `OnnxInputFrame`.
+
+## Inference And Decode
+
+### `FrameOnnxRunnerOptions`
+
+| Property | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ResizeAlgorithm` | `OnnxResizeAlgorithm` | `Bilinear` | CPU resize sampling algorithm for `TryBeginRun(OnnxInputFrame)`. |
+| `ApplyClassNms` | `bool` | `false` | Whether to run per-class NMS. |
+| `NmsIouThreshold` | `float` | `0.5` | NMS IoU threshold. |
+| `DisposeSession` | `bool` | `false` | Whether disposing the runner also disposes the passed session. |
+
+### `FrameOnnxRunner`
+
+Non-blocking frame inference entry point. Only one frame runs at a time; while the previous frame is still running, new `TryBeginRun` calls return `false`.
+
+```csharp
+new FrameOnnxRunner(
+    IOnnxDetectorSession session,
+    DetectorModelProfile profile,
+    OnnxResizeAlgorithm resizeAlgorithm = OnnxResizeAlgorithm.Bilinear,
+    bool applyClassNms = false,
+    float nmsIouThreshold = 0.5f,
+    bool disposeSession = false)
+```
+
+```csharp
+new FrameOnnxRunner(
+    IOnnxDetectorSession session,
+    DetectorModelProfile profile,
+    FrameOnnxRunnerOptions options)
+```
+
+Parameters: `session` is the inference session; `profile` is model configuration; `resizeAlgorithm` or `options.ResizeAlgorithm` controls CPU resize; `applyClassNms` and `nmsIouThreshold` control decode-time NMS; `disposeSession=true` disposes the session when the runner is disposed.
+
+```csharp
+bool TryBeginRun(OnnxInputFrame sourceFrame)
+```
+
+Parameter: `sourceFrame` is the current input frame. The runner currently requires `OnnxFramePixelFormat.Rgba32`. If `sourceFrame.RowsBottomUp=true`, it is converted to top-down internally before resize.
+
+Return value: `true` when inference started; `false` when the previous frame is still running.
+
+```csharp
+bool TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease preparedInput)
+```
+
+Parameter: `preparedInput` is the latest input lease returned by `PreparedFrameOnnxInputBuffer.TryAcquireLatest`. After this method returns `true`, the runner holds the lease until inference finishes. If it returns `false`, the caller is still responsible for disposing the lease.
+
+Return value: `true` when inference started; `false` when the previous frame is still running.
+
+```csharp
+bool TryGetResult(out FrameOnnxInferenceResult result)
+```
+
+Parameter: `result` receives the completed result.
+
+Return value: `true` when a result was available; `false` when no completed result exists yet.
+
+Properties: `IsRunning` indicates whether inference is active; `Profile` returns the model profile passed to the constructor.
+
+### `FrameOnnxInferenceResult`
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `Batch` | `DetectionBatch` | Decoded detection results. |
+| `RawOutput` | `float[]` | Raw ONNX Runtime output. |
+| `OriginalWidth` / `OriginalHeight` | `int` | Original frame size. |
+| `InputWidth` / `InputHeight` | `int` | Model input size. |
+| `ResizeDuration` | `TimeSpan` | CPU resize duration; zero on prepared path. |
+| `TensorDuration` | `TimeSpan` | RGBA to NCHW duration; zero on prepared path. |
+| `InferenceDuration` | `TimeSpan` | ONNX Runtime `Run` duration. |
+| `DecodeDuration` | `TimeSpan` | YOLO decode duration. |
+| `PreprocessDuration` | `TimeSpan` | `ResizeDuration + TensorDuration`. |
+| `TotalActiveDuration` | `TimeSpan` | Total active duration of resize, tensor, ORT, and decode. |
+| `ActiveFps` | `double` | `1 / TotalActiveDuration`; excludes rate-limit waiting. |
+| `PreprocessBackend` | `InferencePreprocessBackend` | Actual preprocessing path. |
+| `Succeeded` | `bool` | Whether the run succeeded. |
+| `ErrorMessage` | `string` | Failure reason, empty on success. |
 
 ### `YoloEnd2EndDecoder`
 
@@ -281,86 +381,47 @@ Parameters: `output` is model output; `profile` or `inputSpec/classes` provide i
 
 Return value: `DetectionBatch` containing filtered detection boxes and highest score per class.
 
-### `FrameOnnxRunnerOptions`
+## WindowCapture Bridge Extensions
 
-`FrameOnnxRunner` configuration.
+The bridge assembly is in `Runtime/WindowCaptureBridge`. It is enabled only when `com.willkyu.window-capture` is installed and does not make the core `OnnxRuntimeInference` asmdef depend on WindowCapture.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `ResizeAlgorithm` | `FrameResizeAlgorithm` | `Bilinear` | CPU resize sampling algorithm for `TryBeginRun(CapturedFrame)`. |
-| `ApplyClassNms` | `bool` | `false` | Whether to run per-class NMS. |
-| `NmsIouThreshold` | `float` | `0.5` | NMS IoU threshold. |
-| `DisposeSession` | `bool` | `false` | Whether disposing the runner also disposes the passed session. |
+### `WindowCaptureOnnxExtensions`
 
-### `FrameOnnxRunner`
-
-Non-blocking frame inference entry point. Only one frame runs at a time; while the previous frame is still running, new `TryBeginRun` calls return `false`.
+The common call shape is `TryBeginRun(CapturedFrame sourceFrame)`, `TryPrepare(CapturedFrame sourceFrame)`, and `CreatePreviewFrame()`. They are implemented as extension methods in the bridge assembly.
 
 ```csharp
-new FrameOnnxRunner(
-    IOnnxDetectorSession session,
-    DetectorModelProfile profile,
-    FrameResizeAlgorithm resizeAlgorithm = FrameResizeAlgorithm.Bilinear,
-    bool applyClassNms = false,
-    float nmsIouThreshold = 0.5f,
-    bool disposeSession = false)
+OnnxInputFrame ToOnnxInputFrame(this CapturedFrame frame)
 ```
+
+Parameter: `frame` is a WindowCapture `CapturedFrame`.
+
+Return value: an `OnnxInputFrame` wrapper over the same pixel array.
 
 ```csharp
-new FrameOnnxRunner(
-    IOnnxDetectorSession session,
-    DetectorModelProfile profile,
-    FrameOnnxRunnerOptions options)
+bool TryBeginRun(this FrameOnnxRunner runner, CapturedFrame sourceFrame)
 ```
 
-Parameters: `session` is the inference session; `profile` is model configuration; `options` may be `null`, which uses default options.
+Parameters: `runner` is the ONNX runner; `sourceFrame` is the captured frame.
+
+Return value: same as `FrameOnnxRunner.TryBeginRun(OnnxInputFrame)`.
 
 ```csharp
-bool TryBeginRun(CapturedFrame sourceFrame)
+bool TryPrepare(this PreparedFrameOnnxInputBuffer.WriteLease lease, CapturedFrame sourceFrame)
 ```
 
-Parameter: `sourceFrame` is the current captured frame. The runner currently requires `FramePixelFormat.Rgba32`. If `sourceFrame.RowsBottomUp=true`, it is converted to top-down internally before resize.
+Parameters: `lease` is the write lease; `sourceFrame` must be top-down `Rgba32`.
 
-Return value: `true` when inference started; `false` when the previous frame is still running.
+Return value: same as `WriteLease.TryPrepare(OnnxInputFrame)`.
 
 ```csharp
-bool TryBeginRun(PreparedFrameOnnxInputBuffer.ReadLease preparedInput)
+CapturedFrame CreatePreviewFrame(this PreparedFrameOnnxInputBuffer.ReadLease lease)
 ```
 
-Parameter: `preparedInput` is the latest input lease returned by `PreparedFrameOnnxInputBuffer.TryAcquireLatest`. After this method returns `true`, the runner holds the lease until inference finishes. If it returns `false`, the caller is still responsible for disposing the lease.
+Parameter: `lease` is the latest read lease.
 
-Return value: `true` when inference started; `false` when the previous frame is still running.
+Return value: a `CapturedFrame` wrapper around the prepared preview for debugging or legacy compatibility.
 
-```csharp
-bool TryGetResult(out FrameOnnxInferenceResult result)
-```
-
-Parameter: `result` receives the completed result.
-
-Return value: `true` when a result was available; `false` when no completed result exists yet.
-
-Properties: `IsRunning` indicates whether inference is active; `Profile` returns the model profile passed to the constructor.
-
-### `FrameOnnxInferenceResult`
-
-Completed result from `FrameOnnxRunner`.
-
-| Property | Type | Description |
-| --- | --- | --- |
-| `Batch` | `DetectionBatch` | Decoded detection results. |
-| `RawOutput` | `float[]` | Raw ONNX Runtime output. |
-| `OriginalWidth` / `OriginalHeight` | `int` | Original frame size. |
-| `InputWidth` / `InputHeight` | `int` | Model input size. |
-| `ResizeDuration` | `TimeSpan` | CPU resize duration; zero on prepared path. |
-| `TensorDuration` | `TimeSpan` | RGBA to NCHW duration; zero on prepared path. |
-| `InferenceDuration` | `TimeSpan` | ONNX Runtime `Run` duration. |
-| `DecodeDuration` | `TimeSpan` | YOLO decode duration. |
-| `PreprocessDuration` | `TimeSpan` | `ResizeDuration + TensorDuration`. |
-| `TotalActiveDuration` | `TimeSpan` | Total active duration of resize, tensor, ORT, and decode. |
-| `ActiveFps` | `double` | `1 / TotalActiveDuration`; excludes rate-limit waiting. |
-| `PreprocessBackend` | `InferencePreprocessBackend` | Actual preprocessing path. |
-| `Succeeded` | `bool` | Whether the run succeeded. |
-| `ErrorMessage` | `string` | Failure reason, empty on success. |
+## Native Library Preload
 
 ### `OrtNativeLibraryPreloader`
 
@@ -372,4 +433,4 @@ void EnsureLoaded()
 
 Return value: none. No-op on non-Windows platforms; throws on Windows if native libraries cannot be found or loaded.
 
-Properties: `LoadedPath` returns the loaded `onnxruntime.dll` path; `LoadWarning` returns warning text from the preload stage.
+Properties: `LoadedPath` returns the loaded `onnxruntime.dll` path; `DirectMlLoadedPath` returns the loaded `DirectML.dll` path; `LoadWarning` returns warning text from the preload stage.
