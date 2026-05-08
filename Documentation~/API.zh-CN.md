@@ -2,8 +2,6 @@
 
 命名空间：`OnnxRuntimeInference`
 
-本文只介绍主要公开接口。实现 `IDisposable` 的对象按 C# 常规释放即可，不单独展开通用释放函数。
-
 ## 基本约定
 
 - 输入 tensor 为 NCHW `float[]`，语义是 `[1, 3, height, width]`。

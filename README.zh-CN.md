@@ -1,6 +1,6 @@
 # willkyu ONNX Runtime Inference
 
-这是一个轻量 Unity UPM 包，用于把 `com.willkyu.window-capture` 捕获到的窗口帧送入 ONNX Runtime 检测模型。
+这是一个轻量 Unity UPM 包，用于把 `com.willkyu.window-capture` 捕获到的窗口帧送入 ONNX Runtime 检测模型。借助 Codex 开发。
 
 ## 功能范围
 

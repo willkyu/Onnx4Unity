@@ -1,6 +1,6 @@
 # willkyu ONNX Runtime Inference
 
-This is a lightweight Unity UPM package for sending frames captured by `com.willkyu.window-capture` into ONNX Runtime detector models.
+This is a lightweight Unity UPM package for sending frames captured by `com.willkyu.window-capture` into ONNX Runtime detector models, with the help of Codex.
 
 ## Scope
 

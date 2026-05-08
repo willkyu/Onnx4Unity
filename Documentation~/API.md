@@ -2,8 +2,6 @@
 
 Namespace: `OnnxRuntimeInference`.
 
-This document covers the main public APIs only. Types that implement `IDisposable` should be disposed using normal C# ownership rules; common dispose methods are not expanded separately.
-
 ## Conventions
 
 - Input tensors are NCHW `float[]` arrays with `[1, 3, height, width]` semantics.
