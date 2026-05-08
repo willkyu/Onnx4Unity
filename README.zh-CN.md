@@ -1,4 +1,4 @@
-# willkyu ONNX Runtime Inference
+# ONNX Runtime Inference for Unity
 
 这是一个独立的 Unity UPM 包，用于 ONNX Runtime 检测模型推理。它不依赖窗口捕获包；调用方只需要提供 RGBA32 帧数据，或提供已经准备好的 NCHW tensor。借助 Codex 开发。
 

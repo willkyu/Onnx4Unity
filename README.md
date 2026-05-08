@@ -1,4 +1,4 @@
-# willkyu ONNX Runtime Inference
+# ONNX Runtime Inference for Unity
 
 Standalone Unity UPM package for ONNX Runtime detector inference. It does not depend on the window capture package; callers provide RGBA32 frame bytes or an already prepared NCHW tensor. Codex was used to help develop this package.
 
