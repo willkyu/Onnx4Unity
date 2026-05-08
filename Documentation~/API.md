@@ -273,6 +273,8 @@ Return value: `true` when latest preview was copied; `false` when no frame is av
 
 `ReadLease` properties: `Width` and `Height` are model input size; `OriginalWidth` and `OriginalHeight` are original size; `FrameId` and `TimestampUtc` are frame metadata; `PreviewPixels` is model-sized RGBA32 preview; `Tensor` is NCHW `float[]`. `CreatePreviewInputFrame()` wraps preview bytes in an `OnnxInputFrame`.
 
+`ClearReadyFrames()` drops latest inputs that have not been acquired yet, while keeping slots currently held by a `ReadLease`. Use it when switching capture sources so a new source cannot first consume stale prepared tensors from the previous source.
+
 ## Inference And Decode
 
 ### `FrameOnnxRunnerOptions`
