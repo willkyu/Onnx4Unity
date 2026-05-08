@@ -1,0 +1,34 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Unity-generated project files
+*.csproj
+*.sln
+*.slnx
+
+# Unity-generated folders when this package is opened in a project
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+MemoryCaptures/
+
+# Build outputs and temporary files
+bin/
+obj/
+Build/
+Builds/
+*.tmp
+*.log
+*.pdb
+*.mdb
